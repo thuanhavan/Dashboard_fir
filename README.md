@@ -10,7 +10,7 @@ Shows:
 - Cluster cores busy/idle by node type, and fairshare per account
 - Job tiles; queue and problem-job tables are collapsed
 
-Data comes from `diskusage_report`, `df`, `diskusage_rbh`, `sinfo`, `squeue`, `sshare` and `sacct`. Storage refreshes every 10 min, everything else every 60 s.
+Data comes from `diskusage_report`, `lfs quota` (per-group project ID; `df` misreports /nearline file counts), `diskusage_rbh`, `sinfo`, `squeue`, `sshare` and `sacct`. Storage refreshes every 10 min, everything else every 60 s.
 
 ## Usage
 

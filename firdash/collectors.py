@@ -47,12 +47,14 @@ def group_quotas():
             path = os.path.realpath(f"/{fs}/{g}")
             if not os.path.isdir(path):
                 continue
-            sp = run(f"df -B1 --output=used,size {path}", 30).split()
-            ino = run(f"df --output=iused,itotal {path}", 30).split()
-            if len(sp) < 4 or len(ino) < 4:
+            pid = run(f"lfs project -d {path}", 30).split()
+            if not pid or not pid[0].isdigit() or pid[0] == "0":
                 continue
-            rows.append({"label": f"{g} /{fs}", "used": float(sp[-2]), "quota": float(sp[-1]),
-                         "files": float(ino[-2]), "fquota": float(ino[-1])})
+            q = run(f"lfs quota -q -p {pid[0]} /{fs}", 30).replace("*", "").split()
+            if len(q) < 8:
+                continue
+            rows.append({"label": f"{g} /{fs}", "used": float(q[1]) * 1024, "quota": float(q[3]) * 1024,
+                         "files": float(q[5]), "fquota": float(q[7])})
     return rows
 
 
