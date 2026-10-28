@@ -346,7 +346,7 @@ aside h4{{margin:22px 0 4px;font-size:15px}} .flab{{font-size:12px;color:var(--m
 .chip:has(input:checked){{background:#1f4f6e;color:var(--ink)}} .chip input{{display:none}}
 select{{background:var(--page);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:6px;width:100%}}
 .about{{margin-top:auto;padding-top:18px;border-top:1px solid var(--border)}}
-.logo{{display:block;max-width:100%;max-height:80px;margin:0 0 14px;object-fit:contain;object-position:left}}
+.logo{{display:block;width:100%;height:auto;margin:0 0 14px;border-radius:6px}}
 .about p{{font-size:12px;color:var(--ink2);line-height:1.5;margin:0 0 12px}}
 .foot{{font-size:11px;color:var(--muted);line-height:1.5}}
 main{{flex:1;padding:22px 28px;min-width:0}}
