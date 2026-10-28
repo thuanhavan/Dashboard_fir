@@ -18,7 +18,10 @@ Everyone runs it under their own account and sees their own quotas, jobs and fai
 storage of the groups they belong to. Currently shared with **def-kanj241** members:
 `/project/def-kanj241/hvt632/fir_interface/bin/firdash`.
 
-From Windows PowerShell (replace `YOURNAME`; one Duo push, opens in the browser):
+**Easiest (Windows):** get `windows/Fir-dashboard.cmd`, put it on the desktop and double-click it. It asks for your Fir
+username once, then each run is one Duo push and the dashboard opens in the browser.
+
+Or from Windows PowerShell (replace `YOURNAME`; one Duo push, opens in the browser):
 
 ```powershell
 cmd /c "ssh YOURNAME@fir.alliancecan.ca bash -lc '/project/def-kanj241/hvt632/fir_interface/bin/firdash --html -' > %TEMP%\fir.html" ; start $env:TEMP\fir.html
