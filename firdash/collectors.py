@@ -24,20 +24,49 @@ def to_count(s):
     return float(s.rstrip("KMG ") or 0) * mult
 
 
-def quotas():
+def user_quotas():
     rows = []
-    pat = re.compile(r"^\s*(/\S+ \([^)]*\))\s*(?:->)?\s*([\d.]+\s*\w+)/\s*([\d.]+\s*\w+)\s+([\d.]+\s*\w?)\s*/\s*([\d.]+\s*\w?)")
-    for line in run("diskusage_report").splitlines():
+    pat = re.compile(r"^\s*/(\w+) \(user [^)]*\)\s*(?:->)?\s*([\d.]+\s*\w+)/\s*([\d.]+\s*\w+)\s+([\d.]+\s*\w?)\s*/\s*([\d.]+\s*\w?)")
+    for line in run("diskusage_report --home --scratch").splitlines():
         m = pat.match(line)
-        if not m:
-            continue
-        name, su, sq, fu, fq = m.groups()
-        rows.append({
-            "name": name, "space": f"{su.strip()} / {sq.strip()}", "files": f"{fu.strip()} / {fq.strip()}",
-            "space_pct": 100 * to_bytes(su) / max(to_bytes(sq), 1),
-            "files_pct": 100 * to_count(fu) / max(to_count(fq), 1),
-        })
+        if m:
+            fs, su, sq, fu, fq = m.groups()
+            rows.append({"label": f"{USER} /{fs}", "used": to_bytes(su), "quota": to_bytes(sq),
+                         "files": to_count(fu), "fquota": to_count(fq)})
     return rows
+
+
+def groups():
+    return sorted(g for g in run("groups").split() if g.startswith(("def-", "rrg-", "rpp-")))
+
+
+def group_quotas():
+    rows = []
+    for g in groups():
+        for fs in ("project", "nearline"):
+            path = os.path.realpath(f"/{fs}/{g}")
+            if not os.path.isdir(path):
+                continue
+            sp = run(f"df -B1 --output=used,size {path}", 30).split()
+            ino = run(f"df --output=iused,itotal {path}", 30).split()
+            if len(sp) < 4 or len(ino) < 4:
+                continue
+            rows.append({"label": f"{g} /{fs}", "used": float(sp[-2]), "quota": float(sp[-1]),
+                         "files": float(ino[-2]), "fquota": float(ino[-1])})
+    return rows
+
+
+def user_breakdown(fs, group):
+    """{user: {"disk": bytes, "tape": bytes}} from diskusage_rbh."""
+    users = {}
+    for line in run(f"diskusage_rbh {fs} {group} --all_users", 120).splitlines():
+        m = re.match(r"\s*(\S+)\s+(\d+)\s+([\d.]+) GiB\s+(.+?)\s*$", line)
+        if not m or m.group(1) == "Total":
+            continue
+        u, _, gib, loc = m.groups()
+        d = users.setdefault(u, {"disk": 0.0, "tape": 0.0})
+        d["tape" if loc == "On tape" else "disk"] += float(gib) * 2**30
+    return {u: v for u, v in users.items() if v["disk"] + v["tape"] > 0}
 
 
 def fairshare():
@@ -53,3 +82,19 @@ def jobs():
 def recent(days):
     out = run(f"sacct -u {USER} -S now-{days}days -X -n -P -o JobID,JobName,State,Elapsed,Timelimit,ReqMem,ExitCode,Account,End")
     return [l.split("|") for l in out.splitlines() if l.strip()]
+
+
+def nodes():
+    """Cores by node type: {type: [alloc, idle, other, total, n_nodes]}."""
+    seen, out = set(), {}
+    for line in run("sinfo -h -N -o '%N|%m|%G|%C'").splitlines():
+        parts = line.split("|")
+        if len(parts) != 4 or parts[0] in seen:
+            continue
+        seen.add(parts[0])
+        _, mem, gres, cores = parts
+        kind = "GPU nodes (H100)" if "gpu" in gres else "Large-mem CPU" if int(mem) > 2_000_000 else "Regular CPU"
+        acc = out.setdefault(kind, [0, 0, 0, 0, 0])
+        for k, v in enumerate([int(x) for x in cores.split("/")] + [1]):
+            acc[k] += v
+    return out

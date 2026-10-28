@@ -3,12 +3,12 @@
 Lightweight web dashboard for resource limits on the Alliance **Fir** cluster. Standard library only, so no install is needed.
 
 Shows:
-- Storage quotas (space + file count) for /home, /scratch, /project, /nearline, with alerts at ≥90%
-- Your SLURM queue, including the reason pending jobs are waiting
-- Fairshare per account
-- Failed / timed-out / OOM / cancelled jobs from recent history
+- Storage quotas (space + file count) for every def-/rrg- group you belong to, plus /home and /scratch
+- /project and /nearline usage per user (tape-only hatched)
+- Cluster cores busy/idle by node type, and fairshare per account
+- Job tiles; queue and problem-job tables are collapsed
 
-Data comes from `diskusage_report`, `squeue`, `sshare` and `sacct`.
+Data comes from `diskusage_report`, `df`, `diskusage_rbh`, `sinfo`, `squeue`, `sshare` and `sacct`. Storage refreshes every 10 min, everything else every 60 s.
 
 ## Usage
 
