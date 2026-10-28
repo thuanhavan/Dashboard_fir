@@ -15,20 +15,26 @@ Data comes from `diskusage_report`, `lfs quota` (per-group project ID; `df` misr
 ## Usage
 
 ```bash
-bin/firdash                      # start server on 127.0.0.1, prints port + tunnel command
-bin/firdash --days 30            # longer sacct history
-bin/firdash --port 8765          # fixed port
+bin/firdash                      # default: private socket ~/.firdash/dash.sock (only you can open it)
+bin/firdash --port 8765          # alternative: 127.0.0.1:8765 with a password page
+bin/firdash --days 30            # default job-history window
 bin/firdash --html report.html   # static snapshot, no server
-python -m firdash                # same as bin/firdash
 ```
 
-Open the page by forwarding the printed port:
-- **VS Code Remote**: PORTS tab, forward the port, then click the link.
-- **SSH**: `ssh -N -L PORT:localhost:PORT -J USER@fir.alliancecan.ca USER@loginN` (use the login node the dashboard is running on).
+**Socket mode (default).** No password: the socket file is mode 600, so other users on the login node
+cannot connect, and the only way in from your PC is an SSH tunnel, which needs your Duo login:
 
-The page asks for a password. It is generated on first start and kept in `~/.config/firdash/password` (mode 600); change it by editing that file (read at every sign-in, no restart needed) or by setting `FIRDASH_PASSWORD` before starting. `/logout` signs out.
+```bash
+ssh -N -L 18765:/home/$USER/.firdash/dash.sock $USER@login1.fir.alliancecan.ca   # use the node it runs on
+```
 
-Reload the page to refresh (results are cached for 60 s).
+then open http://localhost:18765. Pick any local port Windows allows (8765 can be reserved on Windows/WSL).
+
+**Port mode (`--port`).** Works with the VS Code PORTS tab. The page asks for a password, generated on first
+start in `~/.config/firdash/password` (mode 600); edit that file to change it (read at every sign-in) or set
+`FIRDASH_PASSWORD` before starting. `/logout` signs out.
+
+Reload the page to refresh (storage is cached 10 min, everything else 60 s).
 
 ## Layout
 

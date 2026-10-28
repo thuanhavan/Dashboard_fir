@@ -4,6 +4,7 @@ import hmac
 import os
 import secrets
 import socket
+import socketserver
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -13,6 +14,7 @@ from .collectors import USER
 from .render import CACHE_TTL, build
 
 PASSWORD_FILE = Path.home() / ".config" / "firdash" / "password"
+SOCKET_PATH = Path.home() / ".firdash" / "dash.sock"
 _cache = {}
 
 LOGIN = """<!doctype html><html><head><meta charset="utf-8"><title>Fir dashboard</title>
@@ -40,6 +42,31 @@ def load_password():
     return PASSWORD_FILE.read_text().strip()
 
 
+class _UnixHTTPServer(socketserver.ThreadingUnixStreamServer):
+    daemon_threads = True
+
+
+def serve_socket(path, handler):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(path.parent, 0o700)
+    if path.exists():
+        probe = socket.socket(socket.AF_UNIX)
+        try:
+            probe.connect(str(path))
+            raise SystemExit(f"another dashboard is already running on {path}")
+        except (ConnectionRefusedError, FileNotFoundError):
+            path.unlink()
+        finally:
+            probe.close()
+    old = os.umask(0o177)
+    try:
+        srv = _UnixHTTPServer(str(path), handler)
+    finally:
+        os.umask(old)
+    os.chmod(path, 0o600)
+    return srv
+
+
 def page(query):
     t, body = _cache.get(query, (0, ""))
     if time.time() - t > CACHE_TTL:
@@ -50,7 +77,9 @@ def page(query):
 
 def main():
     ap = argparse.ArgumentParser(description="Fir quota/job dashboard")
-    ap.add_argument("--port", type=int, default=0, help="0 = pick a free port")
+    ap.add_argument("--port", type=int, default=None,
+                    help="serve on 127.0.0.1:PORT with a password (0 = random port); default: private socket, no password")
+    ap.add_argument("--socket", default=str(SOCKET_PATH), help="socket path for the default mode")
     ap.add_argument("--days", type=int, default=7, help="default sacct history window")
     ap.add_argument("--html", metavar="FILE", help="write a static HTML file and exit")
     a = ap.parse_args()
@@ -61,7 +90,9 @@ def main():
         print(f"wrote {a.html}")
         return
 
-    load_password()
+    use_socket = a.port is None
+    if not use_socket:
+        load_password()
     session = secrets.token_urlsafe(32)
     cookie_name = f"firdash_{hashlib.sha256(USER.encode()).hexdigest()[:8]}"
 
@@ -79,6 +110,8 @@ def main():
             self.wfile.write(data)
 
         def authed(self):
+            if use_socket:
+                return True
             for part in self.headers.get("Cookie", "").split(";"):
                 k, _, v = part.strip().partition("=")
                 if k == cookie_name and hmac.compare_digest(v, session):
@@ -114,9 +147,25 @@ def main():
         def log_message(self, *args):
             pass
 
+    host = socket.gethostname()
+    short = host.split(".")[0]
+    if use_socket:
+        srv = serve_socket(Path(a.socket), H)
+        print(f"Dashboard on {short}:{a.socket}  (only {USER} can open it; no password)\n")
+        print("From your PC (Duo login; use any free local port, e.g. 18765):")
+        print(f"  ssh -N -L 18765:{a.socket} {USER}@{short}.fir.alliancecan.ca")
+        print("  then open http://localhost:18765\n")
+        print("Ctrl-C to stop.", flush=True)
+        try:
+            srv.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            Path(a.socket).unlink(missing_ok=True)
+        return
+
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), H)
     port = srv.server_address[1]
-    host = socket.gethostname()
     print(f"Dashboard on {host}:127.0.0.1:{port}  (password in {PASSWORD_FILE})\n")
     print("VS Code Remote: open the PORTS tab, forward", port, "and click the link.")
     print("Plain SSH from your laptop (must reach this same login node):")
