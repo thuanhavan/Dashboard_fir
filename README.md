@@ -12,6 +12,24 @@ Shows:
 
 Data comes from `diskusage_report`, `lfs quota` (per-group project ID; `df` misreports /nearline file counts), `diskusage_rbh`, `sinfo`, `squeue`, `sshare` and `sacct`. Storage refreshes every 10 min, everything else every 60 s.
 
+## For lab members
+
+Everyone runs it under their own account and sees their own quotas, jobs and fairshare, plus the per-user
+storage of the groups they belong to. Shared copies (read-only, kept in sync by hvt632):
+
+| Your group | Path |
+|---|---|
+| def-kanj241 | `/project/def-kanj241/hvt632/fir_interface/bin/firdash` |
+| def-acilab | `/project/def-acilab/hvt632/tools/fir_interface/bin/firdash` |
+
+From Windows PowerShell (replace `YOURNAME` and use the path for your group; one Duo push, opens in the browser):
+
+```powershell
+cmd /c "ssh YOURNAME@fir.alliancecan.ca bash -lc '/project/def-acilab/hvt632/tools/fir_interface/bin/firdash --html -' > %TEMP%\fir.html" ; start $env:TEMP\fir.html
+```
+
+On Fir directly: `/project/def-acilab/hvt632/tools/fir_interface/bin/firdash --html ~/fir.html`.
+
 ## Usage
 
 ```bash
