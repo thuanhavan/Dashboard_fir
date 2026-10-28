@@ -26,7 +26,7 @@ Open the page by forwarding the printed port:
 - **VS Code Remote**: PORTS tab, forward the port, then click the link.
 - **SSH**: `ssh -N -L PORT:localhost:PORT -J USER@fir.alliancecan.ca USER@loginN` (use the login node the dashboard is running on).
 
-The page asks for a password. It is generated on first start and kept in `~/.config/firdash/password` (mode 600); change it by editing that file or setting `FIRDASH_PASSWORD`, then restart. `/logout` signs out.
+The page asks for a password. It is generated on first start and kept in `~/.config/firdash/password` (mode 600); change it by editing that file (read at every sign-in, no restart needed) or by setting `FIRDASH_PASSWORD` before starting. `/logout` signs out.
 
 Reload the page to refresh (results are cached for 60 s).
 

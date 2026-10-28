@@ -61,7 +61,7 @@ def main():
         print(f"wrote {a.html}")
         return
 
-    password = load_password()
+    load_password()
     session = secrets.token_urlsafe(32)
     cookie_name = f"firdash_{hashlib.sha256(USER.encode()).hexdigest()[:8]}"
 
@@ -91,7 +91,7 @@ def main():
                 return
             n = min(int(self.headers.get("Content-Length") or 0), 4096)
             form = dict(parse_qsl(self.rfile.read(n).decode(errors="replace")))
-            if hmac.compare_digest(form.get("password", "").encode(), password.encode()):
+            if hmac.compare_digest(form.get("password", "").encode(), load_password().encode()):
                 self.send(303, "", [("Location", "/"),
                                     ("Set-Cookie", f"{cookie_name}={session}; HttpOnly; SameSite=Strict; Path=/")])
             else:
