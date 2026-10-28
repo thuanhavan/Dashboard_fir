@@ -18,7 +18,16 @@ Everyone runs it under their own account and sees their own quotas, jobs and fai
 storage of the groups they belong to. Currently shared with **def-kanj241** members:
 `/project/def-kanj241/hvt632/fir_interface/bin/firdash`.
 
-**Web link (any computer):** open
+**Desktop icon (Windows, works on locked-down USask PCs):** right-click the desktop → New → Shortcut, paste
+(replace `YOURNAME` with your Fir username), Next, name it "Fir dashboard", Finish:
+
+```
+powershell.exe -NoProfile -Command "ssh YOURNAME@fir.alliancecan.ca /project/def-kanj241/hvt632/fir_interface/bin/firdash-html | Out-File -Encoding utf8 $env:TEMP\fir.html; Start-Process $env:TEMP\fir.html"
+```
+
+Double-click it, approve the Duo push, and the dashboard opens in the browser (~20 s).
+
+**Web link (any computer, slower):** open
 <https://jupyterhub.fir.alliancecan.ca/hub/user-redirect/lab/tree/projects/def-kanj241/hvt632/fir_interface/jupyter/Fir_dashboard.ipynb>,
 sign in with your Fir account + Duo, start a small server (1 CPU, 1 h), then click **Run all**.
 (If the server starts on a compute node, /nearline quotas are not shown: /nearline is mounted on login nodes only.)
