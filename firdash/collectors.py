@@ -81,6 +81,13 @@ def jobs():
     return [l.split("|") for l in out.splitlines() if l.strip()]
 
 
+def group_jobs(accounts):
+    if not accounts:
+        return []
+    out = run(f"squeue -A {','.join(sorted(set(accounts)))} -h -o '%i|%u|%j|%T|%M|%l|%C|%a|%R'")
+    return [l.split("|") for l in out.splitlines() if l.strip()]
+
+
 def recent(days):
     out = run(f"sacct -u {USER} -S now-{days}days -X -n -P -o JobID,JobName,State,Elapsed,Timelimit,ReqMem,ExitCode,Account,End")
     return [l.split("|") for l in out.splitlines() if l.strip()]

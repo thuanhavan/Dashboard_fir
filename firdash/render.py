@@ -201,6 +201,7 @@ def build(params):
             ex.submit(storage), ex.submit(c.fairshare), ex.submit(c.jobs),
             ex.submit(c.recent, days), ex.submit(c.nodes)])
 
+    lab = c.group_jobs([r[0] for r in fs])
     groups = st["groups"]
     sel_groups = [g for g in params.get("g", ",".join(groups)).split(",") if g in groups]
     sel_fs = [f for f in params.get("fs", ",".join(FILESYSTEMS)).split(",") if f in FILESYSTEMS]
@@ -238,8 +239,20 @@ def build(params):
         [(k.replace("_", " ").lower(), [(v, CRIT if k != "CANCELLED" else OTHER, f"{k}: {v}", False, None)], f'<tspan class="strong">{v}</tspan>')
          for k, v in sorted(bad_by.items(), key=lambda kv: -kv[1])] or [("none", [], "0")],
         xb, [x for x in range(0, xb + 1, int(nice_step(xb)))], str, value_w=60))
+    lab_by = {}
+    for r in lab:
+        d = lab_by.setdefault(r[1], [0, 0])
+        d[0 if r[3] == "RUNNING" else 1] += 1
+    xl = int(nice_step(max([sum(v) for v in lab_by.values()] + [1])) * 4)
+    lab_card = card(f"Lab queue · {len(lab)} jobs on your accounts", bars(
+        [(u, [(v[0], SERIES[0], f"{u}: {v[0]} running", False, None), (v[1], SERIES[1], f"{u}: {v[1]} pending", False, None)],
+          f'<tspan class="strong">{v[0]}</tspan> run · {v[1]} pend')
+         for u, v in sorted(lab_by.items(), key=lambda kv: -sum(kv[1]))] or [("no jobs", [], "")],
+        xl, list(range(0, xl + 1, int(nice_step(xl)))), str, value_w=120)
+        + legend([("running", SERIES[0]), ("pending", SERIES[1])]))
     tables = (f'<section class="card" style="grid-column:1/-1">'
               f'<details><summary>Queue ({len(jb)})</summary>{table(["JobID","Name","State","Elapsed","Limit","Nodes","CPUs","Mem","Account","Node / Reason"], jb)}</details>'
+              f'<details><summary>Lab queue, all members ({len(lab)})</summary>{table(["JobID","User","Name","State","Elapsed","Limit","CPUs","Account","Node / Reason"], lab)}</details>'
               f'<details><summary>Problem jobs, last {days} days ({len(bad)})</summary>{table(["JobID","Name","State","Elapsed","Limit","ReqMem","Exit","Account","End"], bad[::-1][:300])}</details></section>')
 
     if page == "storage":
@@ -259,16 +272,16 @@ def build(params):
              kpi("✓", "Completed", f"last {days} d", ok),
              kpi("✗", "Problems", f"last {days} d", len(bad), "crit" if bad else ""),
              kpi("%", "Success rate", f"last {days} d", f"{100 * ok / max(ok + len(bad), 1):.0f}%")]
-        body = trend + bad_chart + tables
+        body = trend + bad_chart + lab_card + tables
     else:
         k = [quota_tile(q) for q in sorted(quotas, key=lambda q: -max(pct(q), pct(q, "files", "fquota")))[:3]] + [
              kpi("▶", "My jobs", "running · pending", f"{len(running)} · {len(pending)}", "good" if running else ""),
              kpi("✗", "Problem jobs", f"last {days} d", len(bad), "crit" if bad else "")]
         compute = card("Cluster cores now · fairshare", nodes_chart(nd) + legend([("busy", SERIES[0]), ("idle", GOOD), ("down/drained", OTHER)])
                        + '<div style="height:14px"></div>' + fairshare_chart(fs))
-        body = space + files + proj_u + near_u + trend + compute + tables
+        body = space + files + proj_u + near_u + trend + compute + lab_card + tables
         if params.get("static"):
-            body = space + files + proj_u + near_u + trend + bad_chart + compute + tables
+            body = space + files + proj_u + near_u + trend + bad_chart + compute + lab_card + tables
 
     title = dict((p, l) for p, _, l in PAGES)[page]
     alert_html = "".join(f'<span class="alert">⚠ {esc(a)}</span>' for a in alerts)
