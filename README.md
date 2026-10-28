@@ -28,6 +28,8 @@ Reload the page to refresh (results are cached for 60 s).
 
 ## Layout
 
+![data flow](docs/architecture.svg)
+
 ```
 bin/firdash            launcher (symlink into ~/bin to put it on PATH)
 firdash/collectors.py  runs the cluster commands and parses their output
