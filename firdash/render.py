@@ -353,7 +353,7 @@ main{{flex:1;padding:22px 28px;min-width:0}}
 .top{{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:8px;padding:12px 18px;margin-bottom:16px}}
 .top h1{{font-size:20px;margin:0}}
 .alert{{display:inline-block;background:{CRIT};color:#fff;border-radius:12px;padding:3px 10px;margin-left:6px;font-size:12px;font-weight:600}}
-.kpis{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:18px}}
+.kpis{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:16px;margin-bottom:18px}}
 .kpi-h{{background:var(--head);border-radius:6px;padding:10px 14px;font-size:14px;margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .kpi-b{{border:1px solid var(--border);border-radius:6px;padding:10px 14px;background:var(--surface)}}
 .kpi-b span{{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
@@ -361,7 +361,7 @@ main{{flex:1;padding:22px 28px;min-width:0}}
 .kpi-b.crit b{{color:#e66767}}
 .meter{{position:relative;height:6px;background:var(--track);border-radius:3px;margin-top:8px}}
 .meter div{{height:100%;border-radius:3px}} .meter i{{position:absolute;top:-2px;width:1px;height:10px;background:{CRIT}}} .kpi-b.good b{{color:{GOOD}}}
-.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(480px,1fr));gap:16px}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(480px,100%),1fr));gap:16px}}
 .card{{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px}}
 .card h3{{margin:0 0 10px;font-size:15px}}
 svg text{{font-size:12px;fill:var(--ink2)}} svg .lab{{fill:var(--ink)}} svg .strong{{font-weight:600;fill:var(--ink)}}
@@ -374,7 +374,16 @@ svg .hover{{fill:transparent}} svg .hover:hover{{fill:rgba(255,255,255,.05)}}
 .legend .hatch{{background:repeating-linear-gradient(45deg,var(--muted) 0 2px,transparent 2px 5px);border:1px solid var(--muted)}}
 details{{margin:4px 0}} summary{{cursor:pointer;font-size:14px;color:var(--ink2);padding:6px 0}}
 table{{border-collapse:collapse;font-size:12px;width:100%;margin:6px 0 10px;font-variant-numeric:tabular-nums}}
-td,th{{border-bottom:1px solid var(--grid);padding:4px 6px;text-align:left}} th{{color:var(--muted);font-weight:500}}
+td,th{{border-bottom:1px solid var(--grid);padding:4px 6px;text-align:left}}
+details{{overflow-x:auto}}
+@media (max-width:820px){{
+ body{{display:block}}
+ aside{{position:static;width:auto;height:auto;padding:14px}}
+ .logo{{max-width:320px}} .about,.foot{{display:none}}
+ main{{padding:12px}} .top{{flex-direction:column;align-items:flex-start;gap:8px}}
+ .kpis{{grid-template-columns:repeat(2,1fr);gap:10px}} .kpi-b b{{font-size:24px}}
+ .card{{padding:12px}}
+}} th{{color:var(--muted);font-weight:500}}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute"><defs>{hatch_defs(list(colors.values()) + [OTHER])}</defs></svg>
 {static_sidebar(days) if params.get("static") else sidebar(page, groups, sel_groups, sel_fs, days, who)}
