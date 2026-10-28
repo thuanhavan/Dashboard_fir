@@ -383,6 +383,11 @@ details{{overflow-x:auto}}
  main{{padding:12px}} .top{{flex-direction:column;align-items:flex-start;gap:8px}}
  .kpis{{grid-template-columns:repeat(2,1fr);gap:10px}} .kpi-b b{{font-size:24px}}
  .card{{padding:12px}}
+ nav{{display:flex;flex-wrap:wrap;gap:4px}}
+}}
+@media (min-width:600px) and (max-width:820px){{
+ .kpis{{grid-template-columns:repeat(3,1fr)}}
+ form{{display:grid;grid-template-columns:1fr 1fr;column-gap:14px}} form h4{{grid-column:1/-1}}
 }} th{{color:var(--muted);font-weight:500}}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute"><defs>{hatch_defs(list(colors.values()) + [OTHER])}</defs></svg>
