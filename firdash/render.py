@@ -1,4 +1,6 @@
+import base64
 import datetime as dt
+from pathlib import Path
 import socket
 import threading
 import time
@@ -151,6 +153,19 @@ def table(headers, rows):
     return f"<table><tr>{h}</tr>{body or '<tr><td colspan=99><i>none</i></td></tr>'}</table>"
 
 
+LOGO = Path(__file__).resolve().parent.parent / "docs" / "logo.png"
+ABOUT = ("A quick view of your Alliance Fir resources: storage quotas and file counts, who uses the "
+         "group space, cluster load, fairshare, and the jobs of you and your lab. "
+         "Read-only: it only reads Fir's own reports under your account.")
+
+
+def about():
+    img = ""
+    if LOGO.is_file():
+        img = f'<img src="data:image/png;base64,{base64.b64encode(LOGO.read_bytes()).decode()}" alt="logo">'
+    return f'<div class="about">{img}<p>{esc(ABOUT)}</p></div>'
+
+
 def sidebar(page, groups, sel_groups, sel_fs, days, who="me"):
     nav = "".join(
         f'<a class="nav {"on" if p == page else ""}" href="?{urlencode({"p": p, "g": ",".join(sel_groups), "fs": ",".join(sel_fs), "days": days, "who": who})}">'
@@ -170,6 +185,7 @@ def sidebar(page, groups, sel_groups, sel_fs, days, who="me"):
  <div class="flab">Job history (days)</div><select name="days" onchange="go()">{dsel}</select>
  <div class="flab">Jobs of</div><select name="who" onchange="go()"><option value="me" {"selected" if who == "me" else ""}>me</option><option value="lab" {"selected" if who == "lab" else ""}>all members</option></select>
 </form>
+{about()}
 <div class="foot">{time.strftime('%Y-%m-%d %H:%M')} · {socket.gethostname().split('.')[0]}<br>storage every {STORAGE_TTL // 60} min · jobs every {CACHE_TTL} s</div>
 </aside>"""
 
@@ -179,6 +195,7 @@ def static_sidebar(days):
 <div class="brand">▲ Fir <small>{esc(c.USER)}</small></div>
 <nav><a class="nav on"><span>◉</span>Snapshot</a></nav>
 <div class="flab">All groups · all filesystems · jobs of all members, last {days} d</div>
+{about()}
 <div class="foot">{time.strftime('%Y-%m-%d %H:%M')} · {socket.gethostname().split('.')[0]}<br>static snapshot: rerun to refresh</div>
 </aside>"""
 
@@ -325,7 +342,10 @@ aside h4{{margin:22px 0 4px;font-size:15px}} .flab{{font-size:12px;color:var(--m
 .chip{{font-size:12.5px;background:var(--track);border-radius:5px;padding:4px 8px;cursor:pointer;color:var(--ink2)}}
 .chip:has(input:checked){{background:#1f4f6e;color:var(--ink)}} .chip input{{display:none}}
 select{{background:var(--page);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:6px;width:100%}}
-.foot{{margin-top:auto;font-size:11px;color:var(--muted);line-height:1.5}}
+.about{{margin-top:auto;padding-top:18px;border-top:1px solid var(--border)}}
+.about img{{display:block;max-width:100%;max-height:90px;margin:0 auto 10px;object-fit:contain}}
+.about p{{font-size:12px;color:var(--ink2);line-height:1.5;margin:0 0 12px}}
+.foot{{font-size:11px;color:var(--muted);line-height:1.5}}
 main{{flex:1;padding:22px 28px;min-width:0}}
 .top{{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:8px;padding:12px 18px;margin-bottom:16px}}
 .top h1{{font-size:20px;margin:0}}
