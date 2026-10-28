@@ -5,6 +5,7 @@ import os
 import secrets
 import socket
 import socketserver
+import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -81,13 +82,16 @@ def main():
                     help="serve on 127.0.0.1:PORT with a password (0 = random port); default: private socket, no password")
     ap.add_argument("--socket", default=str(SOCKET_PATH), help="socket path for the default mode")
     ap.add_argument("--days", type=int, default=7, help="default sacct history window")
-    ap.add_argument("--html", metavar="FILE", help="write a static HTML file and exit")
+    ap.add_argument("--html", metavar="FILE", help="write a one-page static snapshot and exit ('-' = stdout)")
     a = ap.parse_args()
 
     if a.html:
-        with open(a.html, "w") as f:
-            f.write(build({"days": str(a.days)}))
-        print(f"wrote {a.html}")
+        html = build({"days": str(a.days), "static": "1"})
+        if a.html == "-":
+            sys.stdout.buffer.write(html.encode())
+        else:
+            Path(a.html).write_text(html, encoding="utf-8")
+            print(f"wrote {a.html}")
         return
 
     use_socket = a.port is None

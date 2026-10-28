@@ -173,6 +173,15 @@ def sidebar(page, groups, sel_groups, sel_fs, days):
 </aside>"""
 
 
+def static_sidebar(days):
+    return f"""<aside>
+<div class="brand">▲ Fir <small>{esc(c.USER)}</small></div>
+<nav><a class="nav on"><span>◉</span>Snapshot</a></nav>
+<div class="flab">All groups · all filesystems · jobs last {days} d</div>
+<div class="foot">{time.strftime('%Y-%m-%d %H:%M')} · {socket.gethostname().split('.')[0]}<br>static snapshot: rerun to refresh</div>
+</aside>"""
+
+
 SCRIPT = """<script>
 function go(){const f=document.getElementById('f');
  for(const d of f.querySelectorAll('.chips')){
@@ -258,6 +267,8 @@ def build(params):
         compute = card("Cluster cores now · fairshare", nodes_chart(nd) + legend([("busy", SERIES[0]), ("idle", GOOD), ("down/drained", OTHER)])
                        + '<div style="height:14px"></div>' + fairshare_chart(fs))
         body = space + files + proj_u + near_u + trend + compute + tables
+        if params.get("static"):
+            body = space + files + proj_u + near_u + trend + bad_chart + compute + tables
 
     title = dict((p, l) for p, _, l in PAGES)[page]
     alert_html = "".join(f'<span class="alert">⚠ {esc(a)}</span>' for a in alerts)
@@ -307,7 +318,7 @@ table{{border-collapse:collapse;font-size:12px;width:100%;margin:6px 0 10px;font
 td,th{{border-bottom:1px solid var(--grid);padding:4px 6px;text-align:left}} th{{color:var(--muted);font-weight:500}}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute"><defs>{hatch_defs(list(colors.values()) + [OTHER])}</defs></svg>
-{sidebar(page, groups, sel_groups, sel_fs, days)}
+{static_sidebar(days) if params.get("static") else sidebar(page, groups, sel_groups, sel_fs, days)}
 <main>
 <div class="top"><h1>{title}</h1><div>{alert_html}</div></div>
 <div class="kpis">{"".join(k)}</div>

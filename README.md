@@ -21,6 +21,12 @@ bin/firdash --days 30            # default job-history window
 bin/firdash --html report.html   # static snapshot, no server
 ```
 
+**Snapshot from Windows (no port needed).** One Duo login; Fir builds the page and your browser opens it:
+
+```powershell
+cmd /c "ssh hvt632@fir.alliancecan.ca bash -lc '~/bin/firdash --html -' > %TEMP%\fir.html" ; start $env:TEMP\fir.html
+```
+
 **Socket mode (default).** No password: the socket file is mode 600, so other users on the login node
 cannot connect, and the only way in from your PC is an SSH tunnel, which needs your Duo login:
 
