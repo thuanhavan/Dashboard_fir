@@ -257,7 +257,7 @@ def build(params):
              kpi("✗", "Problem jobs", f"last {days} d", len(bad), "crit" if bad else "")]
         compute = card("Cluster cores now · fairshare", nodes_chart(nd) + legend([("busy", SERIES[0]), ("idle", GOOD), ("down/drained", OTHER)])
                        + '<div style="height:14px"></div>' + fairshare_chart(fs))
-        body = space + files + trend + compute + tables
+        body = space + files + proj_u + near_u + trend + compute + tables
 
     title = dict((p, l) for p, _, l in PAGES)[page]
     alert_html = "".join(f'<span class="alert">⚠ {esc(a)}</span>' for a in alerts)
