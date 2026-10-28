@@ -1,6 +1,8 @@
 # fir_interface
 
-Lightweight web dashboard for resource limits on the Alliance **Fir** cluster. Standard library only, so no install is needed.
+Dark-theme web dashboard for resource limits on the Alliance **Fir** cluster. Standard library only, so no install is needed.
+
+Pages (sidebar): **Overview**, **Storage**, **Compute**, **Jobs**. Sidebar filters: groups, filesystems, job-history window.
 
 Shows:
 - Storage quotas (space + file count) for every def-/rrg- group you belong to, plus /home and /scratch
@@ -33,6 +35,7 @@ Reload the page to refresh (results are cached for 60 s).
 ```
 bin/firdash            launcher (symlink into ~/bin to put it on PATH)
 firdash/collectors.py  runs the cluster commands and parses their output
-firdash/render.py      builds the HTML
+firdash/charts.py      SVG bar / column charts
+firdash/render.py      pages, KPI tiles, layout
 firdash/server.py      CLI + HTTP server
 ```

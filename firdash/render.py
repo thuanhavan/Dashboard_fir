@@ -1,91 +1,53 @@
-import html
+import datetime as dt
 import socket
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlencode
 
 from . import collectors as c
+from .charts import (CRIT, GOOD, OTHER, SERIES, bars, columns, count, esc, hatch_defs, legend, nice_step, size,
+                     status_fill)
 
 CACHE_TTL = 60
 STORAGE_TTL = 600
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
-OTHER = "#898781"
-CRIT, WARN, GOOD = "#d03b3b", "#fab219", "#0ca30c"
 BAD_STATES = ("FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "CANCELLED")
+PAGES = [("overview", "◉", "Overview"), ("storage", "▤", "Storage"), ("compute", "▦", "Compute"), ("jobs", "☰", "Jobs")]
+FILESYSTEMS = ["project", "nearline", "home", "scratch"]
 _slow = {"t": 0, "data": None}
-
-
-def esc(s):
-    return html.escape(str(s))
-
-
-def size(b):
-    return f"{b / 2**40:.1f} TiB" if b >= 2**40 else f"{b / 2**30:.0f} GiB"
-
-
-def count(n):
-    return f"{n / 1e6:.2f}M" if n >= 1e6 else f"{n / 1e3:.0f}K" if n >= 1e4 else f"{n:,.0f}"
+_lock = threading.Lock()
 
 
 def storage():
+    with _lock:
+        return _storage()
+
+
+def _storage():
     if _slow["data"] is None or time.time() - _slow["t"] > STORAGE_TTL:
         gs = c.groups()
         with ThreadPoolExecutor(8) as ex:
             gq = ex.submit(c.group_quotas)
             uq = ex.submit(c.user_quotas)
             bd = {(fs, g): ex.submit(c.user_breakdown, fs, g) for fs in ("project", "nearline") for g in gs}
-            _slow["data"] = {"quotas": gq.result() + uq.result(),
+            _slow["data"] = {"groups": gs, "quotas": gq.result() + uq.result(),
                              "breakdown": {k: f.result() for k, f in bd.items()}}
         _slow["t"] = time.time()
     return _slow["data"]
 
 
-def svg_bars(rows, xmax, ticks, tick_fmt, ref=None, label_w=150, value_w=190, row_h=34, bar_h=20,
-             sublabels=False, width=620):
-    """rows: [(label, [(value, fill, tooltip, hatched, sublabel)], right_text)]"""
-    plot_w = width - label_w - value_w
-    gap = 18 if sublabels else 0
-    h = len(rows) * (row_h + gap) + 28
-    sx = lambda v: label_w + plot_w * min(v, xmax) / xmax
-    out = [f'<svg viewBox="0 0 {width} {h}" width="100%" role="img">']
-    for t in ticks:
-        x = sx(t)
-        out.append(f'<line x1="{x:.1f}" y1="0" x2="{x:.1f}" y2="{h - 22}" class="grid"/>'
-                   f'<text x="{x:.1f}" y="{h - 6}" class="tick" text-anchor="middle">{tick_fmt(t)}</text>')
-    for i, (label, segs, right) in enumerate(rows):
-        y = i * (row_h + gap) + (row_h - bar_h) / 2
-        out.append(f'<text x="{label_w - 10}" y="{y + bar_h / 2 + 4:.1f}" class="lab" text-anchor="end">{esc(label)}</text>')
-        out.append(f'<rect x="{label_w}" y="{y:.1f}" width="{plot_w}" height="{bar_h}" rx="4" class="track"/>')
-        x0 = 0.0
-        for v, fill, tip, hatched, sub in segs:
-            x1, x2 = sx(x0), sx(x0 + v)
-            w = max(x2 - x1 - 2, 1.5)
-            pat = f'url(#h{fill[1:]})' if hatched else fill
-            out.append(f'<rect x="{x1:.1f}" y="{y:.1f}" width="{w:.1f}" height="{bar_h}" rx="4" fill="{pat}">'
-                       f'<title>{esc(tip)}</title></rect>')
-            if sublabels and sub and w > 38:
-                out.append(f'<text x="{x1 + w / 2:.1f}" y="{y + bar_h + 13:.1f}" class="sub" text-anchor="middle">{esc(sub)}</text>')
-            x0 += v
-        out.append(f'<text x="{label_w + plot_w + 10}" y="{y + bar_h / 2 + 4:.1f}" class="val">{right}</text>')
-    if ref is not None:
-        x = sx(ref)
-        out.append(f'<line x1="{x:.1f}" y1="0" x2="{x:.1f}" y2="{h - 22}" class="ref"/>')
-    out.append("</svg>")
-    return "".join(out)
-
-
-def status_fill(pct):
-    return CRIT if pct >= 95 else WARN if pct >= 85 else SERIES[0]
+def pct(q, k="used", qk="quota"):
+    return 100 * q[k] / max(q[qk], 1)
 
 
 def quota_chart(quotas, key, qkey, fmt):
     rows = []
     for q in quotas:
-        pct = 100 * q[key] / max(q[qkey], 1)
-        icon = "⚠ " if pct >= 85 else ""
-        tip = f"{q['label']}: {fmt(q[key])} of {fmt(q[qkey])} ({pct:.1f}%)"
-        rows.append((q["label"], [(pct, status_fill(pct), tip, False, None)],
-                     f'<tspan class="strong">{icon}{pct:.0f}%</tspan>  {fmt(q[key])} / {fmt(q[qkey])}'))
-    return svg_bars(rows, 100, [0, 25, 50, 75, 100], lambda t: f"{t}%", ref=95)
+        p = pct(q, key, qkey)
+        icon = "⚠ " if p >= 85 else ""
+        rows.append((q["label"], [(p, status_fill(p), f"{q['label']}: {fmt(q[key])} of {fmt(q[qkey])} ({p:.1f}%)", False, None)],
+                     f'<tspan class="strong">{icon}{p:.0f}%</tspan>  {fmt(q[key])} / {fmt(q[qkey])}'))
+    return bars(rows, 100, [0, 25, 50, 75, 100], lambda t: f"{t}%", ref=95)
 
 
 def user_colors(breakdown):
@@ -97,8 +59,8 @@ def user_colors(breakdown):
     return {u: SERIES[i] for i, u in enumerate(order[:len(SERIES)])}
 
 
-def usage_chart(breakdown, fs, colors, tape):
-    keys = sorted(k for k in breakdown if k[0] == fs)
+def usage_chart(breakdown, fs, groups, colors, tape):
+    keys = sorted(k for k in breakdown if k[0] == fs and k[1] in groups)
     totals = [sum(v["disk"] + v["tape"] for v in breakdown[k].values()) for k in keys]
     xmax = max(totals + [1])
     rows = []
@@ -121,15 +83,7 @@ def usage_chart(breakdown, fs, colors, tape):
         rows.append((k[1], segs, f'<tspan class="strong">{size(tot)}</tspan>'))
     step = max(5, round(xmax / 2**40 / 4 / 5) * 5)
     ticks = [t * 2**40 for t in range(0, int(xmax / 2**40) + 1, step)]
-    return svg_bars(rows, xmax, ticks, lambda t: f"{t / 2**40:.0f}", sublabels=True, row_h=30, value_w=90)
-
-
-def legend(colors, tape=False):
-    items = [f'<span><i style="background:{col}"></i>{esc(u)}</span>' for u, col in colors.items()]
-    items.append(f'<span><i style="background:{OTHER}"></i>other</span>')
-    if tape:
-        items.append('<span><i class="hatch"></i>tape-only</span>')
-    return f'<div class="legend">{"".join(items)}</div>'
+    return bars(rows, xmax, ticks, lambda t: f"{t / 2**40:.0f}", sublabels=True, row_h=30, value_w=90)
 
 
 def nodes_chart(nodes):
@@ -138,12 +92,11 @@ def nodes_chart(nodes):
         if kind not in nodes:
             continue
         a, i, o, t, n = nodes[kind]
-        pa, pi, po = (100 * x / max(t, 1) for x in (a, i, o))
-        rows.append((kind, [(pa, SERIES[0], f"{a:,} cores busy", False, None),
-                            (pi, GOOD, f"{i:,} cores idle", False, None),
-                            (po, OTHER, f"{o:,} cores down/drained", False, None)],
-                     f'<tspan class="strong">{100 * i / max(t, 1):.0f}% idle</tspan>  {count(i)} / {count(t)} cores'))
-    return svg_bars(rows, 100, [0, 50, 100], lambda t: f"{t}%")
+        rows.append((kind, [(100 * a / t, SERIES[0], f"{a:,} cores busy", False, None),
+                            (100 * i / t, GOOD, f"{i:,} cores idle", False, None),
+                            (100 * o / t, OTHER, f"{o:,} cores down/drained", False, None)],
+                     f'<tspan class="strong">{100 * i / t:.0f}% idle</tspan>  {count(i)} / {count(t)} cores'))
+    return bars(rows, 100, [0, 50, 100], lambda t: f"{t}%")
 
 
 def fairshare_chart(fs):
@@ -152,11 +105,44 @@ def fairshare_chart(fs):
         f = float(fair or 0)
         rows.append((acct, [(f, SERIES[0], f"FairShare {f:.3f} · LevelFS {level} · usage {float(eff or 0):.3f} of share {float(norm or 0):.3f}", False, None)],
                      f'<tspan class="strong">{f:.2f}</tspan>'))
-    return svg_bars(rows, 1, [0, 0.5, 1], lambda t: f"{t:g}", value_w=80)
+    return bars(rows, 1, [0, 0.5, 1], lambda t: f"{t:g}", value_w=80)
 
 
-def tile(value, label, cls=""):
-    return f'<div class="tile {cls}"><b>{value}</b><span>{esc(label)}</span></div>'
+def jobs_per_day(hist, days):
+    today = dt.date.today()
+    dates = [today - dt.timedelta(days=d) for d in range(days - 1, -1, -1)]
+    idx = {d.isoformat(): i for i, d in enumerate(dates)}
+    ok, bad = [0] * days, [0] * days
+    for r in hist:
+        i = idx.get(r[8][:10])
+        if i is None:
+            continue
+        if r[2].startswith("COMPLETED"):
+            ok[i] += 1
+        elif r[2].split()[0] in BAD_STATES:
+            bad[i] += 1
+    labels = [d.strftime("%b %d") for d in dates]
+    return columns(labels, [("completed", SERIES[0], ok), ("problems", CRIT, bad)]) + legend([("completed", SERIES[0]), ("problems", CRIT)])
+
+
+def kpi(icon, title, sub, value, cls="", bar=None):
+    meter = ""
+    if bar is not None:
+        meter = (f'<div class="meter"><div style="width:{min(bar, 100):.0f}%;background:{status_fill(bar)}"></div>'
+                 f'<i style="left:95%"></i></div>')
+    return (f'<div class="kpi"><div class="kpi-h">{icon} {esc(title)}</div>'
+            f'<div class="kpi-b {cls}"><span>{esc(sub)}</span><b>{value}</b>{meter}</div></div>')
+
+
+def quota_tile(q):
+    sp, fp = pct(q), pct(q, "files", "fquota")
+    which, p = ("space", sp) if sp >= fp else ("files", fp)
+    sub = f"{size(q['used'])} / {size(q['quota'])}" if which == "space" else f"{count(q['files'])} / {count(q['fquota'])} files"
+    return kpi("⚠" if p >= 95 else "▤", q["label"], f"{which} · {sub}", f"{p:.0f}%", "crit" if p >= 95 else "", p)
+
+
+def card(title, body, span=1):
+    return f'<section class="card" style="grid-column:span {span}"><h3>{esc(title)}</h3>{body}</section>'
 
 
 def table(headers, rows):
@@ -165,83 +151,167 @@ def table(headers, rows):
     return f"<table><tr>{h}</tr>{body or '<tr><td colspan=99><i>none</i></td></tr>'}</table>"
 
 
-def build(days):
+def sidebar(page, groups, sel_groups, sel_fs, days):
+    nav = "".join(
+        f'<a class="nav {"on" if p == page else ""}" href="?{urlencode({"p": p, "g": ",".join(sel_groups), "fs": ",".join(sel_fs), "days": days})}">'
+        f'<span>{icon}</span>{label}</a>' for p, icon, label in PAGES)
+    chips = lambda name, opts, sel: "".join(
+        f'<label class="chip"><input type="checkbox" name="{name}" value="{o}" {"checked" if o in sel else ""} onchange="go()">{esc(o)}</label>'
+        for o in opts)
+    dsel = "".join(f'<option {"selected" if d == days else ""}>{d}</option>' for d in (7, 14, 30, 90))
+    return f"""<aside>
+<div class="brand">▲ Fir <small>{esc(c.USER)}</small></div>
+<nav>{nav}</nav>
+<form id="f" method="get">
+ <input type="hidden" name="p" value="{page}"><input type="hidden" name="g"><input type="hidden" name="fs">
+ <h4>Filter here</h4>
+ <div class="flab">Groups</div><div class="chips" data-for="g">{chips("gx", groups, sel_groups)}</div>
+ <div class="flab">Filesystems</div><div class="chips" data-for="fs">{chips("fsx", FILESYSTEMS, sel_fs)}</div>
+ <div class="flab">Job history (days)</div><select name="days" onchange="go()">{dsel}</select>
+</form>
+<div class="foot">{time.strftime('%Y-%m-%d %H:%M')} · {socket.gethostname().split('.')[0]}<br>storage every {STORAGE_TTL // 60} min · jobs every {CACHE_TTL} s</div>
+</aside>"""
+
+
+SCRIPT = """<script>
+function go(){const f=document.getElementById('f');
+ for(const d of f.querySelectorAll('.chips')){
+  f.elements[d.dataset.for].value=[...d.querySelectorAll('input:checked')].map(i=>i.value).join(',')||'none';
+  d.querySelectorAll('input').forEach(i=>i.disabled=true);}
+ f.submit();}
+</script>"""
+
+
+def build(params):
+    page = params.get("p", "overview")
+    page = page if page in {p for p, _, _ in PAGES} else "overview"
+    days = int(params.get("days", "7")) if params.get("days", "7").isdigit() else 7
+
     with ThreadPoolExecutor(5) as ex:
         st, fs, jb, hist, nd = (f.result() for f in [
             ex.submit(storage), ex.submit(c.fairshare), ex.submit(c.jobs),
             ex.submit(c.recent, days), ex.submit(c.nodes)])
 
-    fs_order = {"/project": 0, "/nearline": 1, "/home": 2, "/scratch": 3}
-    quotas = sorted(st["quotas"], key=lambda q: (fs_order.get(q["label"].split()[1], 9), q["label"]))
-    alerts = []
-    for q in quotas:
-        for k, qk, name in (("used", "quota", "space"), ("files", "fquota", "files")):
-            pct = 100 * q[k] / max(q[qk], 1)
-            if pct >= 95:
-                alerts.append(f"{q['label']} {name} {pct:.0f}%")
-    colors = user_colors(st["breakdown"])
-    hatch = "".join(
-        f'<pattern id="h{col[1:]}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
-        f'<rect width="6" height="6" fill="{col}" opacity="0.45"/><line x1="0" y1="0" x2="0" y2="6" stroke="{col}" stroke-width="2.5"/></pattern>'
-        for col in list(colors.values()) + [OTHER])
+    groups = st["groups"]
+    sel_groups = [g for g in params.get("g", ",".join(groups)).split(",") if g in groups]
+    sel_fs = [f for f in params.get("fs", ",".join(FILESYSTEMS)).split(",") if f in FILESYSTEMS]
 
-    running = sum(1 for r in jb if r[2] == "RUNNING")
-    pending = sum(1 for r in jb if r[2] == "PENDING")
+    order = {"/project": 0, "/nearline": 1, "/home": 2, "/scratch": 3}
+    quotas = sorted(
+        (q for q in st["quotas"]
+         if q["label"].split()[1][1:] in sel_fs and (q["label"].split()[0] in sel_groups or q["label"].startswith(c.USER))),
+        key=lambda q: (order.get(q["label"].split()[1], 9), q["label"]))
+    colors = user_colors(st["breakdown"])
+
+    running = [r for r in jb if r[2] == "RUNNING"]
+    pending = [r for r in jb if r[2] == "PENDING"]
     bad = [r for r in hist if r[2].split()[0] in BAD_STATES]
     ok = sum(1 for r in hist if r[2].startswith("COMPLETED"))
+    reg = nd.get("Regular CPU", [0, 0, 0, 1, 0])
+    gpu = nd.get("GPU nodes (H100)", [0, 0, 0, 1, 0])
+    min_fs = min((float(r[3] or 0) for r in fs), default=0)
+    alerts = [f"{q['label']} {name} {p:.0f}%" for q in quotas
+              for name, p in (("space", pct(q)), ("files", pct(q, "files", "fquota"))) if p >= 95]
+
+    space = card("Space quota", quota_chart(quotas, "used", "quota", size))
+    files = card("File-count quota", quota_chart(quotas, "files", "fquota", count))
+    trend = card(f"Jobs finished per day · last {days} d", jobs_per_day(hist, days))
+    cores = card("Cluster cores now", nodes_chart(nd) + legend([("busy", SERIES[0]), ("idle", GOOD), ("down/drained", OTHER)]))
+    fair = card("Fairshare · higher = sooner start", fairshare_chart(fs))
+    users = list(colors.items()) + [("other", OTHER)]
+    proj_u = card("/project by user (TiB)", usage_chart(st["breakdown"], "project", sel_groups, colors, False) + legend(users)) if "project" in sel_fs else ""
+    near_u = card("/nearline by user (TiB)", usage_chart(st["breakdown"], "nearline", sel_groups, colors, True) + legend(users, True)) if "nearline" in sel_fs else ""
     bad_by = {}
     for r in bad:
-        s = r[2].split()[0]
-        bad_by[s] = bad_by.get(s, 0) + 1
-    bad_tiles = "".join(tile(v, k.replace("_", " ").lower(), "crit" if k != "CANCELLED" else "") for k, v in sorted(bad_by.items()))
+        bad_by[r[2].split()[0]] = bad_by.get(r[2].split()[0], 0) + 1
+    xb = int(nice_step(max(bad_by.values(), default=1)) * 4)
+    bad_chart = card(f"Problem jobs by state · {days} d", bars(
+        [(k.replace("_", " ").lower(), [(v, CRIT if k != "CANCELLED" else OTHER, f"{k}: {v}", False, None)], f'<tspan class="strong">{v}</tspan>')
+         for k, v in sorted(bad_by.items(), key=lambda kv: -kv[1])] or [("none", [], "0")],
+        xb, [x for x in range(0, xb + 1, int(nice_step(xb)))], str, value_w=60))
+    tables = (f'<section class="card" style="grid-column:1/-1">'
+              f'<details><summary>Queue ({len(jb)})</summary>{table(["JobID","Name","State","Elapsed","Limit","Nodes","CPUs","Mem","Account","Node / Reason"], jb)}</details>'
+              f'<details><summary>Problem jobs, last {days} days ({len(bad)})</summary>{table(["JobID","Name","State","Elapsed","Limit","ReqMem","Exit","Account","End"], bad[::-1][:300])}</details></section>')
 
+    if page == "storage":
+        k = [quota_tile(q) for q in quotas]
+        body = space + files + proj_u + near_u
+    elif page == "compute":
+        my_cores = sum(int(r[6]) for r in running if r[6].isdigit())
+        k = [kpi("▦", "Regular CPU", "idle cores", count(reg[1]), "good"),
+             kpi("▦", "GPU nodes", "idle cores", count(gpu[1]), "good"),
+             kpi("⚖", "Fairshare", "lowest account", f"{min_fs:.2f}"),
+             kpi("▶", "My running", "cores in use", my_cores),
+             kpi("◷", "My pending", "jobs", len(pending))]
+        body = cores + fair
+    elif page == "jobs":
+        k = [kpi("▶", "Running", "jobs now", len(running), "good"),
+             kpi("◷", "Pending", "jobs now", len(pending)),
+             kpi("✓", "Completed", f"last {days} d", ok),
+             kpi("✗", "Problems", f"last {days} d", len(bad), "crit" if bad else ""),
+             kpi("%", "Success rate", f"last {days} d", f"{100 * ok / max(ok + len(bad), 1):.0f}%")]
+        body = trend + bad_chart + tables
+    else:
+        k = [quota_tile(q) for q in sorted(quotas, key=lambda q: -max(pct(q), pct(q, "files", "fquota")))[:3]] + [
+             kpi("▶", "My jobs", "running · pending", f"{len(running)} · {len(pending)}", "good" if running else ""),
+             kpi("✗", "Problem jobs", f"last {days} d", len(bad), "crit" if bad else "")]
+        compute = card("Cluster cores now · fairshare", nodes_chart(nd) + legend([("busy", SERIES[0]), ("idle", GOOD), ("down/drained", OTHER)])
+                       + '<div style="height:14px"></div>' + fairshare_chart(fs))
+        body = space + files + trend + compute + tables
+
+    title = dict((p, l) for p, _, l in PAGES)[page]
     alert_html = "".join(f'<span class="alert">⚠ {esc(a)}</span>' for a in alerts)
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Fir · {c.USER}</title>
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Fir · {title}</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-:root{{--surface:#fcfcfb;--page:#f9f9f7;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--grid:#e1e0d9;--track:#f0efec;--border:rgba(11,11,11,.10)}}
-@media (prefers-color-scheme:dark){{:root{{--surface:#1a1a19;--page:#0d0d0d;--ink:#f0efec;--ink2:#c3c2b7;--grid:#2c2c2a;--track:#262624;--border:rgba(255,255,255,.10)}}}}
-body{{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;padding:20px 28px;background:var(--page);color:var(--ink)}}
-h1{{font-size:20px;margin:0 0 2px}} .ts{{color:var(--muted);font-size:12px;margin-bottom:12px}}
-.grid2{{display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:16px;margin-bottom:16px}}
-.card{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}}
-.card h2{{font-size:14px;margin:0 0 8px}}
+:root{{--page:#0b1424;--side:#111d33;--surface:#13213a;--head:#1b3358;--ink:#f0efec;--ink2:#c3c2b7;--muted:#8f97a8;
+--grid:#22324f;--track:#1c2c48;--border:rgba(255,255,255,.10);--accent:{SERIES[0]}}}
+*{{box-sizing:border-box}}
+body{{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);display:flex;min-height:100vh}}
+aside{{width:250px;flex-shrink:0;background:var(--side);padding:18px 16px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh;overflow:auto}}
+.brand{{font-size:20px;font-weight:700;margin-bottom:12px}} .brand small{{font-size:12px;color:var(--muted);font-weight:400;margin-left:6px}}
+.nav{{display:flex;gap:10px;align-items:center;padding:9px 12px;border-radius:8px;color:var(--ink2);text-decoration:none;font-size:14px}}
+.nav:hover{{background:var(--track)}} .nav.on{{background:var(--head);color:var(--ink);font-weight:600}}
+.nav span{{width:18px;text-align:center}}
+aside h4{{margin:22px 0 4px;font-size:15px}} .flab{{font-size:12px;color:var(--muted);margin:12px 0 6px}}
+.chips{{display:flex;flex-wrap:wrap;gap:6px;background:var(--page);padding:8px;border-radius:8px}}
+.chip{{font-size:12.5px;background:var(--track);border-radius:5px;padding:4px 8px;cursor:pointer;color:var(--ink2)}}
+.chip:has(input:checked){{background:#1f4f6e;color:var(--ink)}} .chip input{{display:none}}
+select{{background:var(--page);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:6px;width:100%}}
+.foot{{margin-top:auto;font-size:11px;color:var(--muted);line-height:1.5}}
+main{{flex:1;padding:22px 28px;min-width:0}}
+.top{{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:8px;padding:12px 18px;margin-bottom:16px}}
+.top h1{{font-size:20px;margin:0}}
+.alert{{display:inline-block;background:{CRIT};color:#fff;border-radius:12px;padding:3px 10px;margin-left:6px;font-size:12px;font-weight:600}}
+.kpis{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:18px}}
+.kpi-h{{background:var(--head);border-radius:6px;padding:10px 14px;font-size:14px;margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.kpi-b{{border:1px solid var(--border);border-radius:6px;padding:10px 14px;background:var(--surface)}}
+.kpi-b span{{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.kpi-b b{{display:block;font-size:30px;font-weight:600;margin-top:4px;white-space:nowrap}}
+.kpi-b.crit b{{color:#e66767}}
+.meter{{position:relative;height:6px;background:var(--track);border-radius:3px;margin-top:8px}}
+.meter div{{height:100%;border-radius:3px}} .meter i{{position:absolute;top:-2px;width:1px;height:10px;background:{CRIT}}} .kpi-b.good b{{color:{GOOD}}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(480px,1fr));gap:16px}}
+.card{{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px}}
+.card h3{{margin:0 0 10px;font-size:15px}}
 svg text{{font-size:12px;fill:var(--ink2)}} svg .lab{{fill:var(--ink)}} svg .strong{{font-weight:600;fill:var(--ink)}}
-svg .tick{{font-size:11px;fill:var(--muted);font-variant-numeric:tabular-nums}} svg .sub{{font-size:10.5px;fill:var(--ink2)}}
-svg .grid{{stroke:var(--grid);stroke-width:1}} svg .ref{{stroke:{CRIT};stroke-width:1.2;stroke-dasharray:3 3}}
-svg .track{{fill:var(--track)}} svg rect:hover{{opacity:.8}}
-.legend{{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink2);margin-top:4px}}
+svg .tick{{font-size:11px;fill:var(--muted);font-variant-numeric:tabular-nums}} svg .sub{{font-size:10.5px}}
+svg .grid{{stroke:var(--grid)}} svg .axis{{stroke:var(--muted)}} svg .ref{{stroke:{CRIT};stroke-width:1.2;stroke-dasharray:3 3}}
+svg .track{{fill:var(--track)}} svg rect:hover{{opacity:.85}} svg .dot{{stroke:var(--surface);stroke-width:2}}
+svg .hover{{fill:transparent}} svg .hover:hover{{fill:rgba(255,255,255,.05)}}
+.legend{{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink2);margin-top:6px}}
 .legend i{{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}}
 .legend .hatch{{background:repeating-linear-gradient(45deg,var(--muted) 0 2px,transparent 2px 5px);border:1px solid var(--muted)}}
-.alert{{display:inline-block;background:{CRIT};color:#fff;border-radius:12px;padding:3px 10px;margin:0 6px 6px 0;font-size:12px;font-weight:600}}
-.tiles{{display:flex;flex-wrap:wrap;gap:10px}}
-.tile{{min-width:92px;padding:8px 12px;border-radius:8px;background:var(--track)}}
-.tile b{{display:block;font-size:24px}} .tile span{{font-size:12px;color:var(--ink2)}}
-.tile.crit b{{color:{CRIT}}} .tile.good b{{color:{GOOD}}}
-details{{margin-top:10px}} summary{{cursor:pointer;font-size:13px;color:var(--ink2)}}
-table{{border-collapse:collapse;font-size:12px;width:100%;margin-top:6px;font-variant-numeric:tabular-nums}}
-td,th{{border-bottom:1px solid var(--grid);padding:3px 6px;text-align:left}} th{{color:var(--muted);font-weight:500}}
+details{{margin:4px 0}} summary{{cursor:pointer;font-size:14px;color:var(--ink2);padding:6px 0}}
+table{{border-collapse:collapse;font-size:12px;width:100%;margin:6px 0 10px;font-variant-numeric:tabular-nums}}
+td,th{{border-bottom:1px solid var(--grid);padding:4px 6px;text-align:left}} th{{color:var(--muted);font-weight:500}}
 </style></head><body>
-<svg width="0" height="0" style="position:absolute"><defs>{hatch}</defs></svg>
-<h1>Fir · {c.USER}</h1>
-<div class="ts">{time.strftime('%Y-%m-%d %H:%M')} · {socket.gethostname().split('.')[0]} · storage refreshed every {STORAGE_TTL // 60} min · hover bars for detail</div>
-<div>{alert_html}</div>
-
-<div class="grid2">
- <div class="card"><h2>Space quota</h2>{quota_chart(quotas, "used", "quota", size)}</div>
- <div class="card"><h2>File-count quota</h2>{quota_chart(quotas, "files", "fquota", count)}</div>
- <div class="card"><h2>/project by user (TiB)</h2>{usage_chart(st["breakdown"], "project", colors, False)}{legend(colors)}</div>
- <div class="card"><h2>/nearline by user (TiB)</h2>{usage_chart(st["breakdown"], "nearline", colors, True)}{legend(colors, True)}</div>
- <div class="card"><h2>Cluster cores now</h2>{nodes_chart(nd)}
-   <div class="legend"><span><i style="background:{SERIES[0]}"></i>busy</span><span><i style="background:{GOOD}"></i>idle</span><span><i style="background:{OTHER}"></i>down/drained</span></div></div>
- <div class="card"><h2>Fairshare (higher = sooner start)</h2>{fairshare_chart(fs)}</div>
-</div>
-
-<div class="card"><h2>My jobs</h2>
- <div class="tiles">{tile(running, "running", "good")}{tile(pending, "pending")}{tile(ok, f"completed {days}d")}{bad_tiles or tile(0, f"problems {days}d")}</div>
- <details><summary>Queue ({len(jb)})</summary>
-  {table(["JobID","Name","State","Elapsed","Limit","Nodes","CPUs","Mem","Account","Node / Reason"], jb)}</details>
- <details><summary>Problem jobs, last {days} days ({len(bad)})</summary>
-  {table(["JobID","Name","State","Elapsed","Limit","ReqMem","Exit","Account","End"], bad[::-1][:300])}</details>
-</div>
+<svg width="0" height="0" style="position:absolute"><defs>{hatch_defs(list(colors.values()) + [OTHER])}</defs></svg>
+{sidebar(page, groups, sel_groups, sel_fs, days)}
+<main>
+<div class="top"><h1>{title}</h1><div>{alert_html}</div></div>
+<div class="kpis">{"".join(k)}</div>
+<div class="grid">{body}</div>
+</main>
+{SCRIPT}
 </body></html>"""
