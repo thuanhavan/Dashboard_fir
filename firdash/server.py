@@ -88,7 +88,7 @@ def main():
     if a.html:
         html = build({"days": str(a.days), "static": "1"})
         if a.html == "-":
-            sys.stdout.buffer.write(html.encode())
+            sys.stdout.buffer.write(html.encode("ascii", "xmlcharrefreplace"))
         else:
             Path(a.html).write_text(html, encoding="utf-8")
             print(f"wrote {a.html}")
