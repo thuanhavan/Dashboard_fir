@@ -159,11 +159,14 @@ ABOUT = ("A quick view of your Alliance Fir resources: storage quotas and file c
          "Read-only: it only reads Fir's own reports under your account.")
 
 
+def logo():
+    if not LOGO.is_file():
+        return ""
+    return f'<img class="logo" src="data:image/png;base64,{base64.b64encode(LOGO.read_bytes()).decode()}" alt="logo">'
+
+
 def about():
-    img = ""
-    if LOGO.is_file():
-        img = f'<img src="data:image/png;base64,{base64.b64encode(LOGO.read_bytes()).decode()}" alt="logo">'
-    return f'<div class="about">{img}<p>{esc(ABOUT)}</p></div>'
+    return f'<div class="about"><p>{esc(ABOUT)}</p></div>'
 
 
 def sidebar(page, groups, sel_groups, sel_fs, days, who="me"):
@@ -175,7 +178,7 @@ def sidebar(page, groups, sel_groups, sel_fs, days, who="me"):
         for o in opts)
     dsel = "".join(f'<option {"selected" if d == days else ""}>{d}</option>' for d in (7, 14, 30, 90))
     return f"""<aside>
-<div class="brand">▲ Fir <small>{esc(c.USER)}</small></div>
+{logo()}<div class="brand">▲ Fir <small>{esc(c.USER)}</small></div>
 <nav>{nav}</nav>
 <form id="f" method="get">
  <input type="hidden" name="p" value="{page}"><input type="hidden" name="g"><input type="hidden" name="fs">
@@ -192,7 +195,7 @@ def sidebar(page, groups, sel_groups, sel_fs, days, who="me"):
 
 def static_sidebar(days):
     return f"""<aside>
-<div class="brand">▲ Fir <small>{esc(c.USER)}</small></div>
+{logo()}<div class="brand">▲ Fir <small>{esc(c.USER)}</small></div>
 <nav><a class="nav on"><span>◉</span>Snapshot</a></nav>
 <div class="flab">All groups · all filesystems · jobs of all members, last {days} d</div>
 {about()}
@@ -343,7 +346,7 @@ aside h4{{margin:22px 0 4px;font-size:15px}} .flab{{font-size:12px;color:var(--m
 .chip:has(input:checked){{background:#1f4f6e;color:var(--ink)}} .chip input{{display:none}}
 select{{background:var(--page);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:6px;width:100%}}
 .about{{margin-top:auto;padding-top:18px;border-top:1px solid var(--border)}}
-.about img{{display:block;max-width:100%;max-height:90px;margin:0 auto 10px;object-fit:contain}}
+.logo{{display:block;max-width:100%;max-height:80px;margin:0 0 14px;object-fit:contain;object-position:left}}
 .about p{{font-size:12px;color:var(--ink2);line-height:1.5;margin:0 0 12px}}
 .foot{{font-size:11px;color:var(--muted);line-height:1.5}}
 main{{flex:1;padding:22px 28px;min-width:0}}
