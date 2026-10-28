@@ -1,0 +1,2 @@
+#!/bin/bash -l
+exec "$(dirname "$(readlink -f "$0")")/firdash" --html - "$@"
