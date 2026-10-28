@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlencode
 
 from . import collectors as c
-from .charts import (CRIT, GOOD, OTHER, SERIES, bars, columns, count, esc, hatch_defs, legend, nice_step, size,
+from .charts import (CRIT, GOOD, OTHER, SERIES, WARN_FILL, bars, columns, radial, count, esc, hatch_defs, legend, nice_step, size,
                      status_fill)
 
 CACHE_TTL = 60
@@ -125,6 +125,44 @@ def jobs_per_day(hist, days):
             bad[i] += 1
     labels = [d.strftime("%b %d") for d in dates]
     return columns(labels, [("completed", SERIES[0], ok), ("problems", CRIT, bad)]) + legend([("completed", SERIES[0]), ("problems", CRIT)])
+
+
+STATE_COLORS = {"FAILED": CRIT, "TIMEOUT": "#ec835a", "OUT_OF_MEMORY": WARN_FILL, "NODE_FAIL": "#9085e9",
+                "CANCELLED": OTHER}
+
+
+def problems_radial(rows, me):
+    users, states = {}, []
+    for r in rows:
+        u = r[9] if len(r) > 9 else me
+        st_ = r[2].split()[0]
+        users.setdefault(u, {})[st_] = users.setdefault(u, {}).get(st_, 0) + 1
+        if st_ not in states:
+            states.append(st_)
+    if not users:
+        return '<p class="muted">No problem jobs.</p>'
+    order = sorted(users, key=lambda u: -sum(users[u].values()))
+    states = [k for k in STATE_COLORS if k in states]
+    series = [(k.replace("_", " ").lower(), STATE_COLORS[k], [users[u].get(k, 0) for u in order]) for k in states]
+    return radial(order, series) + legend([(name, col) for name, col, _ in series])
+
+
+def problems_over_time(rows, days, colors, me):
+    today = dt.date.today()
+    dates = [today - dt.timedelta(days=d) for d in range(days - 1, -1, -1)]
+    idx = {d.isoformat(): i for i, d in enumerate(dates)}
+    per = {}
+    for r in rows:
+        i = idx.get(r[8][:10])
+        if i is None:
+            continue
+        u = r[9] if len(r) > 9 else me
+        per.setdefault(u, [0] * days)[i] += 1
+    if not per:
+        return '<p class="muted">No problem jobs.</p>'
+    order = sorted(per, key=lambda u: -sum(per[u]))
+    series = [(u, colors.get(u, OTHER), per[u]) for u in order]
+    return columns([d.strftime("%b %d") for d in dates], series) + legend([(u, col) for u, col, _ in series])
 
 
 def kpi(icon, title, sub, value, cls="", bar=None):
@@ -258,10 +296,6 @@ def build(params):
     users = list(colors.items()) + [("other", OTHER)]
     proj_u = card("/project by user (TiB)", usage_chart(st["breakdown"], "project", sel_groups, colors, False) + legend(users)) if "project" in sel_fs else ""
     near_u = card("/nearline by user (TiB)", usage_chart(st["breakdown"], "nearline", sel_groups, colors, True) + legend(users, True)) if "nearline" in sel_fs else ""
-    bad_by = {}
-    for r in bad:
-        bad_by[r[2].split()[0]] = bad_by.get(r[2].split()[0], 0) + 1
-    xb = int(nice_step(max(bad_by.values(), default=1)) * 4)
     by_user = {}
     for r in jh:
         st_ = r[2].split()[0]
@@ -277,10 +311,8 @@ def build(params):
          for u, v in sorted(by_user.items(), key=lambda kv: -sum(kv[1]))] or [("no jobs", [], "")],
         xu, list(range(0, xu + 1, int(nice_step(xu)))), lambda t: f"{t:,}", value_w=170)
         + legend([("completed", SERIES[0]), ("problems", CRIT)])) if who == "lab" else ""
-    bad_chart = card(f"Problem jobs by state · {scope} · {days} d", bars(
-        [(k.replace("_", " ").lower(), [(v, CRIT if k != "CANCELLED" else OTHER, f"{k}: {v}", False, None)], f'<tspan class="strong">{v}</tspan>')
-         for k, v in sorted(bad_by.items(), key=lambda kv: -kv[1])] or [("none", [], "0")],
-        xb, [x for x in range(0, xb + 1, int(nice_step(xb)))], str, value_w=60))
+    bad_chart = card(f"Problem jobs by member and state · {scope} · {days} d", problems_radial(bad, c.USER))
+    bad_ts = card(f"Problem jobs per day by member · {scope} · {days} d", problems_over_time(bad, days, colors, c.USER))
     lab_by = {}
     for r in lab:
         d = lab_by.setdefault(r[1], [0, 0])
@@ -315,7 +347,7 @@ def build(params):
              kpi("✓", "Completed", f"last {days} d", ok),
              kpi("✗", "Problems", f"last {days} d", len(bad), "crit" if bad else ""),
              kpi("%", "Success rate", f"last {days} d", f"{100 * ok / max(ok + len(bad), 1):.0f}%")]
-        body = trend + member_chart + bad_chart + lab_card + tables
+        body = trend + member_chart + bad_chart + bad_ts + lab_card + tables
     else:
         k = [quota_tile(q) for q in sorted(quotas, key=lambda q: -max(pct(q), pct(q, "files", "fquota")))[:3]] + [
              kpi("▶", "My jobs", "running · pending", f"{len(running)} · {len(pending)}", "good" if running else ""),
@@ -324,7 +356,7 @@ def build(params):
                        + '<div style="height:14px"></div>' + fairshare_chart(fs))
         body = space + files + proj_u + near_u + trend + compute + lab_card + tables
         if params.get("static"):
-            body = space + files + proj_u + near_u + trend + member_chart + bad_chart + compute + lab_card + tables
+            body = space + files + proj_u + near_u + trend + member_chart + bad_chart + compute + lab_card + bad_ts + tables
 
     title = dict((p, l) for p, _, l in PAGES)[page]
     alert_html = "".join(f'<span class="alert">⚠ {esc(a)}</span>' for a in alerts)
@@ -358,7 +390,7 @@ main{{flex:1;padding:22px 28px;min-width:0}}
 .kpi-b{{border:1px solid var(--border);border-radius:6px;padding:10px 14px;background:var(--surface)}}
 .kpi-b span{{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .kpi-b b{{display:block;font-size:30px;font-weight:600;margin-top:4px;white-space:nowrap}}
-.kpi-b.crit b{{color:#e66767}}
+.kpi-b.crit b{{color:#e66767}} .muted{{color:var(--muted);font-size:13px}}
 .meter{{position:relative;height:6px;background:var(--track);border-radius:3px;margin-top:8px}}
 .meter div{{height:100%;border-radius:3px}} .meter i{{position:absolute;top:-2px;width:1px;height:10px;background:{CRIT}}} .kpi-b.good b{{color:{GOOD}}}
 .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(480px,100%),1fr));gap:16px}}

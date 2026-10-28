@@ -3,6 +3,7 @@ import html
 SERIES = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"]
 OTHER = "#898781"
 CRIT, WARN, GOOD = "#d03b3b", "#fab219", "#0ca30c"
+WARN_FILL = WARN
 
 
 def esc(s):
@@ -137,4 +138,54 @@ def columns(xlabels, series, width=620, height=260):
         tip = " · ".join(f"{name}: {vals[i]}" for name, _, vals in series)
         out.append(f'<rect x="{cx - slot / 2:.1f}" y="{top}" width="{slot:.1f}" height="{ph}" class="hover"><title>{esc(lab)} — {esc(tip)}</title></rect>')
     out.append(f'<line x1="{left}" y1="{top + ph}" x2="{left + pw}" y2="{top + ph}" class="axis"/></svg>')
+    return "".join(out)
+
+
+def radial(labels, series, size=460, r0=58):
+    """Circular stacked bars: one bar per label, stacked by series [(name, color, [values])]."""
+    import math
+    cx = cy = size / 2
+    rmax = size / 2 - 64
+    n = max(len(labels), 1)
+    totals = [sum(s[2][i] for s in series) for i in range(len(labels))]
+    step = nice_step(max(totals + [1]))
+    vmax = step * -(-max(totals + [1]) // step)
+    rad = lambda v: r0 + (rmax - r0) * math.sqrt(v / vmax)
+    slot = 2 * math.pi / n
+    half = slot * 0.36
+
+    def pt(r, a):
+        return cx + r * math.cos(a), cy + r * math.sin(a)
+
+    def sector(a0, a1, ri, ro):
+        (x1, y1), (x2, y2), (x3, y3), (x4, y4) = pt(ri, a0), pt(ro, a0), pt(ro, a1), pt(ri, a1)
+        big = 1 if a1 - a0 > math.pi else 0
+        return (f"M{x1:.1f},{y1:.1f}L{x2:.1f},{y2:.1f}A{ro:.1f},{ro:.1f} 0 {big} 1 {x3:.1f},{y3:.1f}"
+                f"L{x4:.1f},{y4:.1f}A{ri:.1f},{ri:.1f} 0 {big} 0 {x1:.1f},{y1:.1f}Z")
+
+    out = [f'<svg viewBox="0 0 {size} {size}" width="100%" style="max-width:{size}px;display:block;margin:auto" role="img">']
+    ta = -math.pi / 2 + slot / 2
+    ticks = sorted({v for v in (vmax / 16, vmax / 4, vmax) if v >= 1})
+    for t in ticks:
+        tx, ty = pt(rad(t), ta)
+        out.append(f'<circle cx="{cx}" cy="{cy}" r="{rad(t):.1f}" fill="none" class="grid"/>'
+                   f'<text x="{tx:.1f}" y="{ty:.1f}" class="tick" text-anchor="middle" dominant-baseline="middle">{t:,.0f}</text>')
+    out.append(f'<circle cx="{cx}" cy="{cy}" r="{r0}" fill="none" class="axis"/>')
+    for i, lab in enumerate(labels):
+        a = -math.pi / 2 + i * slot
+        v0 = 0
+        for name, col, vals in series:
+            v = vals[i]
+            if v:
+                out.append(f'<path d="{sector(a - half, a + half, rad(v0) + (1 if v0 else 0), rad(v0 + v))}" fill="{col}">'
+                           f'<title>{esc(lab)} · {esc(name)}: {v:,}</title></path>')
+            v0 += v
+        deg = math.degrees(a)
+        flip = 90 < (deg % 360) < 270
+        lx, ly = pt(rad(v0) + 8, a)
+        rot = deg + 180 if flip else deg
+        out.append(f'<text x="{lx:.1f}" y="{ly:.1f}" class="lab" text-anchor="{"end" if flip else "start"}" '
+                   f'dominant-baseline="middle" transform="rotate({rot:.1f} {lx:.1f} {ly:.1f})">{esc(lab)} '
+                   f'<tspan class="strong">{totals[i]:,}</tspan></text>')
+    out.append("</svg>")
     return "".join(out)
