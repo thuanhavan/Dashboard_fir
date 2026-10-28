@@ -151,9 +151,9 @@ def table(headers, rows):
     return f"<table><tr>{h}</tr>{body or '<tr><td colspan=99><i>none</i></td></tr>'}</table>"
 
 
-def sidebar(page, groups, sel_groups, sel_fs, days):
+def sidebar(page, groups, sel_groups, sel_fs, days, who="me"):
     nav = "".join(
-        f'<a class="nav {"on" if p == page else ""}" href="?{urlencode({"p": p, "g": ",".join(sel_groups), "fs": ",".join(sel_fs), "days": days})}">'
+        f'<a class="nav {"on" if p == page else ""}" href="?{urlencode({"p": p, "g": ",".join(sel_groups), "fs": ",".join(sel_fs), "days": days, "who": who})}">'
         f'<span>{icon}</span>{label}</a>' for p, icon, label in PAGES)
     chips = lambda name, opts, sel: "".join(
         f'<label class="chip"><input type="checkbox" name="{name}" value="{o}" {"checked" if o in sel else ""} onchange="go()">{esc(o)}</label>'
@@ -168,6 +168,7 @@ def sidebar(page, groups, sel_groups, sel_fs, days):
  <div class="flab">Groups</div><div class="chips" data-for="g">{chips("gx", groups, sel_groups)}</div>
  <div class="flab">Filesystems</div><div class="chips" data-for="fs">{chips("fsx", FILESYSTEMS, sel_fs)}</div>
  <div class="flab">Job history (days)</div><select name="days" onchange="go()">{dsel}</select>
+ <div class="flab">Jobs of</div><select name="who" onchange="go()"><option value="me" {"selected" if who == "me" else ""}>me</option><option value="lab" {"selected" if who == "lab" else ""}>all members</option></select>
 </form>
 <div class="foot">{time.strftime('%Y-%m-%d %H:%M')} · {socket.gethostname().split('.')[0]}<br>storage every {STORAGE_TTL // 60} min · jobs every {CACHE_TTL} s</div>
 </aside>"""
@@ -177,7 +178,7 @@ def static_sidebar(days):
     return f"""<aside>
 <div class="brand">▲ Fir <small>{esc(c.USER)}</small></div>
 <nav><a class="nav on"><span>◉</span>Snapshot</a></nav>
-<div class="flab">All groups · all filesystems · jobs last {days} d</div>
+<div class="flab">All groups · all filesystems · jobs of all members, last {days} d</div>
 <div class="foot">{time.strftime('%Y-%m-%d %H:%M')} · {socket.gethostname().split('.')[0]}<br>static snapshot: rerun to refresh</div>
 </aside>"""
 
@@ -195,13 +196,16 @@ def build(params):
     page = params.get("p", "overview")
     page = page if page in {p for p, _, _ in PAGES} else "overview"
     days = int(params.get("days", "7")) if params.get("days", "7").isdigit() else 7
+    who = "lab" if params.get("static") else ("lab" if params.get("who") == "lab" else "me")
 
-    with ThreadPoolExecutor(5) as ex:
-        st, fs, jb, hist, nd = (f.result() for f in [
-            ex.submit(storage), ex.submit(c.fairshare), ex.submit(c.jobs),
-            ex.submit(c.recent, days), ex.submit(c.nodes)])
+    fs = c.fairshare()
+    accounts = [r[0] for r in fs]
+    with ThreadPoolExecutor(7) as ex:
+        futs = [ex.submit(storage), ex.submit(c.jobs), ex.submit(c.recent, days), ex.submit(c.nodes),
+                ex.submit(c.group_jobs, accounts), ex.submit(c.recent, days, accounts) if who == "lab" else None]
+        st, jb, hist, nd, lab, hist_lab = (f.result() if f else None for f in futs)
+    hist_lab = hist_lab if who == "lab" else hist
 
-    lab = c.group_jobs([r[0] for r in fs])
     groups = st["groups"]
     sel_groups = [g for g in params.get("g", ",".join(groups)).split(",") if g in groups]
     sel_fs = [f for f in params.get("fs", ",".join(FILESYSTEMS)).split(",") if f in FILESYSTEMS]
@@ -215,8 +219,11 @@ def build(params):
 
     running = [r for r in jb if r[2] == "RUNNING"]
     pending = [r for r in jb if r[2] == "PENDING"]
-    bad = [r for r in hist if r[2].split()[0] in BAD_STATES]
-    ok = sum(1 for r in hist if r[2].startswith("COMPLETED"))
+    my_bad = [r for r in hist if r[2].split()[0] in BAD_STATES]
+    jh = hist_lab
+    bad = [r for r in jh if r[2].split()[0] in BAD_STATES]
+    ok = sum(1 for r in jh if r[2].startswith("COMPLETED"))
+    scope = "all members" if who == "lab" else "me"
     reg = nd.get("Regular CPU", [0, 0, 0, 1, 0])
     gpu = nd.get("GPU nodes (H100)", [0, 0, 0, 1, 0])
     min_fs = min((float(r[3] or 0) for r in fs), default=0)
@@ -225,7 +232,7 @@ def build(params):
 
     space = card("Space quota", quota_chart(quotas, "used", "quota", size))
     files = card("File-count quota", quota_chart(quotas, "files", "fquota", count))
-    trend = card(f"Jobs finished per day · last {days} d", jobs_per_day(hist, days))
+    trend = card(f"Jobs finished per day · {scope} · last {days} d", jobs_per_day(jh, days))
     cores = card("Cluster cores now", nodes_chart(nd) + legend([("busy", SERIES[0]), ("idle", GOOD), ("down/drained", OTHER)]))
     fair = card("Fairshare · higher = sooner start", fairshare_chart(fs))
     users = list(colors.items()) + [("other", OTHER)]
@@ -235,7 +242,22 @@ def build(params):
     for r in bad:
         bad_by[r[2].split()[0]] = bad_by.get(r[2].split()[0], 0) + 1
     xb = int(nice_step(max(bad_by.values(), default=1)) * 4)
-    bad_chart = card(f"Problem jobs by state · {days} d", bars(
+    by_user = {}
+    for r in jh:
+        st_ = r[2].split()[0]
+        d = by_user.setdefault(r[9] if len(r) > 9 else c.USER, [0, 0])
+        if st_ == "COMPLETED":
+            d[0] += 1
+        elif st_ in BAD_STATES:
+            d[1] += 1
+    xu = int(nice_step(max([sum(v) for v in by_user.values()] + [1])) * 4)
+    member_chart = card(f"Jobs by member · last {days} d", bars(
+        [(u, [(v[0], SERIES[0], f"{u}: {v[0]} completed", False, None), (v[1], CRIT, f"{u}: {v[1]} problems", False, None)],
+          f'<tspan class="strong">{v[0]:,}</tspan> ok · {v[1]:,} problems')
+         for u, v in sorted(by_user.items(), key=lambda kv: -sum(kv[1]))] or [("no jobs", [], "")],
+        xu, list(range(0, xu + 1, int(nice_step(xu)))), lambda t: f"{t:,}", value_w=170)
+        + legend([("completed", SERIES[0]), ("problems", CRIT)])) if who == "lab" else ""
+    bad_chart = card(f"Problem jobs by state · {scope} · {days} d", bars(
         [(k.replace("_", " ").lower(), [(v, CRIT if k != "CANCELLED" else OTHER, f"{k}: {v}", False, None)], f'<tspan class="strong">{v}</tspan>')
          for k, v in sorted(bad_by.items(), key=lambda kv: -kv[1])] or [("none", [], "0")],
         xb, [x for x in range(0, xb + 1, int(nice_step(xb)))], str, value_w=60))
@@ -253,7 +275,7 @@ def build(params):
     tables = (f'<section class="card" style="grid-column:1/-1">'
               f'<details><summary>Queue ({len(jb)})</summary>{table(["JobID","Name","State","Elapsed","Limit","Nodes","CPUs","Mem","Account","Node / Reason"], jb)}</details>'
               f'<details><summary>Lab queue, all members ({len(lab)})</summary>{table(["JobID","User","Name","State","Elapsed","Limit","CPUs","Account","Node / Reason"], lab)}</details>'
-              f'<details><summary>Problem jobs, last {days} days ({len(bad)})</summary>{table(["JobID","Name","State","Elapsed","Limit","ReqMem","Exit","Account","End"], bad[::-1][:300])}</details></section>')
+              f'<details><summary>Problem jobs, {scope}, last {days} days ({len(bad)})</summary>{table(["JobID","Name","State","Elapsed","Limit","ReqMem","Exit","Account","End","User"], bad[::-1][:300])}</details></section>')
 
     if page == "storage":
         k = [quota_tile(q) for q in quotas]
@@ -267,21 +289,22 @@ def build(params):
              kpi("◷", "My pending", "jobs", len(pending))]
         body = cores + fair
     elif page == "jobs":
-        k = [kpi("▶", "Running", "jobs now", len(running), "good"),
-             kpi("◷", "Pending", "jobs now", len(pending)),
+        lab_run = sum(1 for r in lab if r[3] == "RUNNING")
+        k = [kpi("▶", "Running", f"jobs now · {scope}", lab_run if who == "lab" else len(running), "good"),
+             kpi("◷", "Pending", f"jobs now · {scope}", len(lab) - lab_run if who == "lab" else len(pending)),
              kpi("✓", "Completed", f"last {days} d", ok),
              kpi("✗", "Problems", f"last {days} d", len(bad), "crit" if bad else ""),
              kpi("%", "Success rate", f"last {days} d", f"{100 * ok / max(ok + len(bad), 1):.0f}%")]
-        body = trend + bad_chart + lab_card + tables
+        body = trend + member_chart + bad_chart + lab_card + tables
     else:
         k = [quota_tile(q) for q in sorted(quotas, key=lambda q: -max(pct(q), pct(q, "files", "fquota")))[:3]] + [
              kpi("▶", "My jobs", "running · pending", f"{len(running)} · {len(pending)}", "good" if running else ""),
-             kpi("✗", "Problem jobs", f"last {days} d", len(bad), "crit" if bad else "")]
+             kpi("✗", "My problem jobs", f"last {days} d", len(my_bad), "crit" if my_bad else "")]
         compute = card("Cluster cores now · fairshare", nodes_chart(nd) + legend([("busy", SERIES[0]), ("idle", GOOD), ("down/drained", OTHER)])
                        + '<div style="height:14px"></div>' + fairshare_chart(fs))
         body = space + files + proj_u + near_u + trend + compute + lab_card + tables
         if params.get("static"):
-            body = space + files + proj_u + near_u + trend + bad_chart + compute + lab_card + tables
+            body = space + files + proj_u + near_u + trend + member_chart + bad_chart + compute + lab_card + tables
 
     title = dict((p, l) for p, _, l in PAGES)[page]
     alert_html = "".join(f'<span class="alert">⚠ {esc(a)}</span>' for a in alerts)
@@ -331,7 +354,7 @@ table{{border-collapse:collapse;font-size:12px;width:100%;margin:6px 0 10px;font
 td,th{{border-bottom:1px solid var(--grid);padding:4px 6px;text-align:left}} th{{color:var(--muted);font-weight:500}}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute"><defs>{hatch_defs(list(colors.values()) + [OTHER])}</defs></svg>
-{static_sidebar(days) if params.get("static") else sidebar(page, groups, sel_groups, sel_fs, days)}
+{static_sidebar(days) if params.get("static") else sidebar(page, groups, sel_groups, sel_fs, days, who)}
 <main>
 <div class="top"><h1>{title}</h1><div>{alert_html}</div></div>
 <div class="kpis">{"".join(k)}</div>

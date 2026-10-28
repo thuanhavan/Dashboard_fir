@@ -88,8 +88,9 @@ def group_jobs(accounts):
     return [l.split("|") for l in out.splitlines() if l.strip()]
 
 
-def recent(days):
-    out = run(f"sacct -u {USER} -S now-{days}days -X -n -P -o JobID,JobName,State,Elapsed,Timelimit,ReqMem,ExitCode,Account,End")
+def recent(days, accounts=None):
+    who = f"-a -A {','.join(sorted(set(accounts)))}" if accounts else f"-u {USER}"
+    out = run(f"sacct {who} -S now-{days}days -X -n -P -o JobID,JobName,State,Elapsed,Timelimit,ReqMem,ExitCode,Account,End,User", 120)
     return [l.split("|") for l in out.splitlines() if l.strip()]
 
 
