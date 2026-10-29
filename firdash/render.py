@@ -312,8 +312,6 @@ def _until(start):
 
 
 def pending_panel(pend):
-    anim = (f'<img class="anim" src="data:image/gif;base64,{base64.b64encode(ANIM.read_bytes()).decode()}" alt="">'
-            if ANIM.is_file() else "")
     rows = sorted(pend, key=lambda r: (r[5] in ("N/A", ""), r[5]))[:9]
     items = "".join(
         f'<div class="prow"><span class="pn" title="{esc(r[0])} · {esc(r[2])}">{esc(r[1])}</span>'
@@ -321,7 +319,15 @@ def pending_panel(pend):
         f'<span class="pr">{esc(REASONS.get(r[4], r[4]))}</span></div>' for r in rows)
     more = f'<div class="muted">+ {len(pend) - len(rows)} more in the Pending table</div>' if len(pend) > len(rows) else ""
     body = items + more if rows else '<p class="muted">No pending jobs: the queue is clear.</p>'
-    return f'<section class="card pend-card">{anim}<h3>Pending jobs · expected start</h3><div class="plist">{body}</div></section>'
+    return f'<section class="card pend-card"><h3>Pending jobs · expected start</h3><div class="plist">{body}</div></section>'
+
+
+def anim_panel():
+    """Decorative filler: sized by the page script to fill the empty end of the last grid row."""
+    if not ANIM.is_file():
+        return ""
+    return (f'<section class="card anim-card" data-filler="1"><img class="anim" alt="" '
+            f'src="data:image/gif;base64,{base64.b64encode(ANIM.read_bytes()).decode()}"></section>')
 
 
 def efficiency_card(eff, days):
@@ -469,7 +475,7 @@ function focusB(key){
  const g=document.querySelector('.grid'), list=document.getElementById('boards'); if(!g||!list) return;
  const all=document.createElement('button'); all.className='bd all'; all.dataset.key=''; all.textContent='\\u25A6 All panels';
  all.onclick=()=>focusB(''); list.appendChild(all);
- [...g.children].forEach((s,i)=>{
+ [...g.children].filter(s=>!s.dataset.filler).forEach((s,i)=>{
   const h=s.querySelector('h3,summary'); const full=(h?h.textContent:'Board '+(i+1)).trim();
   const name=full.split(/ \\u00B7 |\\(/)[0].trim().replace(/:$/,'');
   let key=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||('b'+i);
@@ -491,6 +497,18 @@ function focusB(key){
  const want=new URLSearchParams(location.search).get('b')||decodeURIComponent(location.hash.slice(1));
  if(want&&g.querySelector('[data-key="'+want+'"]')) focusB(want);
  document.addEventListener('keydown',e=>{if(e.key==='Escape') focusB('');});})();
+function fillGrid(){
+ const g=document.querySelector('.grid'); if(!g) return;
+ const cols=getComputedStyle(g).gridTemplateColumns.split(' ').filter(Boolean).length||1;
+ g.querySelectorAll('[data-filler]').forEach(f=>{
+  let used=0;
+  for(let e=f.previousElementSibling;e;e=e.previousElementSibling){
+   const gc=e.style.gridColumn||'';
+   if(gc.indexOf('-1')>=0) break;
+   const m=gc.match(/span\\s+(\\d+)/); used+=m?Math.min(+m[1],cols):1;}
+  const rem=(cols-used%cols)%cols;
+  f.style.display=rem?'':'none'; f.style.gridColumn=rem?'span '+rem:'';});}
+fillGrid(); window.addEventListener('resize',fillGrid);
 </script>"""
 
 
@@ -580,7 +598,7 @@ def build(params):
     fsc = fs_card(fsys) if fsys else ""
     pend_c = pending_card(pend)
     eff_c, cpu_eff, mem_eff, idle_h = efficiency_card(eff, days)
-    pend_p = pending_panel(pend)
+    pend_p = pending_panel(pend) + anim_panel()
     big = [r for r in resv if r[6] == "upcoming" or (r[3].isdigit() and int(r[3]) >= 50)]
     resv_c = (f'<section class="card" style="grid-column:1/-1"><details {"open" if big else ""}><summary>Maintenance and reservations '
               f'(upcoming or ≥ 50 nodes: {len(big)} · all active: {len(resv)})</summary>'
@@ -685,10 +703,9 @@ svg .hover{{fill:transparent}} svg .hover:hover{{fill:rgba(255,255,255,.05)}}
 #ov{{position:fixed;inset:0;z-index:50;background:rgba(5,10,20,.65);display:flex;align-items:center;justify-content:center;cursor:zoom-out}}
 #ov>section{{width:min(max(50vw,640px),94vw);max-height:86vh;overflow:auto;box-shadow:0 12px 48px rgba(0,0,0,.55);cursor:zoom-out}}
 #ov>section svg{{max-width:none !important}} #ov .zoom{{background:var(--head);color:var(--ink)}}
-.pend-card{{position:relative;overflow:hidden}}
-.pend-card .anim{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.28;pointer-events:none;filter:saturate(.85);
- -webkit-mask-image:radial-gradient(ellipse 80% 75% at 50% 55%,#000 25%,transparent 85%);mask-image:radial-gradient(ellipse 80% 75% at 50% 55%,#000 25%,transparent 85%)}}
-.pend-card h3,.pend-card .plist{{position:relative;z-index:1}} .pend-card .zoom{{z-index:2}}
+.anim-card{{position:relative;overflow:hidden;padding:0;min-height:220px}}
+.anim-card .anim{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.28;filter:saturate(.85);pointer-events:none;
+ -webkit-mask-image:radial-gradient(ellipse 80% 75% at 50% 50%,#000 25%,transparent 85%);mask-image:radial-gradient(ellipse 80% 75% at 50% 50%,#000 25%,transparent 85%)}}
 .prow{{display:grid;grid-template-columns:minmax(0,1.3fr) auto minmax(0,1.6fr);gap:10px;align-items:baseline;padding:6px 2px;border-bottom:1px solid var(--grid);font-size:13px}}
 .prow .pn{{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}} .prow .pt{{color:{GOOD};font-weight:600;font-variant-numeric:tabular-nums}}
 .prow .pr{{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
