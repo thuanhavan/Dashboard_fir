@@ -311,15 +311,41 @@ def _until(start):
     return f"in {h // 24} d {h % 24} h" if h >= 24 else f"in {h} h {m:02d} m" if h else f"in {m} min"
 
 
-def pending_panel(pend):
-    rows = sorted(pend, key=lambda r: (r[5] in ("N/A", ""), r[5]))[:9]
-    items = "".join(
-        f'<div class="prow"><span class="pn" title="{esc(r[0])} · {esc(r[2])}">{esc(r[1])}</span>'
-        f'<span class="pt">{_until(r[5]) if r[5] not in ("N/A", "") else "—"}</span>'
-        f'<span class="pr">{esc(REASONS.get(r[4], r[4]))}</span></div>' for r in rows)
-    more = f'<div class="muted">+ {len(pend) - len(rows)} more in the Pending table</div>' if len(pend) > len(rows) else ""
-    body = items + more if rows else '<p class="muted">No pending jobs: the queue is clear.</p>'
-    return f'<section class="card pend-card"><h3>Pending jobs · expected start</h3><div class="plist">{body}</div></section>'
+def pending_panel(lab, plab):
+    """Lab summary: per member running / pending jobs (array tasks counted) and the next expected start."""
+    users = {}
+    for r in lab:
+        if r[3] == "RUNNING":
+            users.setdefault(r[1], {"run": 0, "pend": 0, "starts": [], "reasons": {}})["run"] += 1
+    for r in plab:
+        d = users.setdefault(r[1], {"run": 0, "pend": 0, "starts": [], "reasons": {}})
+        d["pend"] += r[7]
+        if r[6] not in ("N/A", ""):
+            d["starts"].append(r[6])
+        reason = r[5].split(",")[0]
+        d["reasons"][reason] = d["reasons"].get(reason, 0) + r[7]
+    if not users:
+        return card("Lab jobs · running, pending, expected start", '<p class="muted">No running or pending jobs on your accounts.</p>')
+    rows = []
+    for u, d in sorted(users.items(), key=lambda kv: -(kv[1]["run"] + kv[1]["pend"])):
+        if d["starts"]:
+            st = sorted(d["starts"])
+            when = f'next {_until(st[0])}' + (f' · median {_until(st[len(st) // 2])}' if len(st) > 2 else "")
+        elif d["pend"]:
+            top = max(d["reasons"], key=d["reasons"].get)
+            when = f'no estimate · {top}'
+        else:
+            when = "nothing pending"
+        tip_r = ", ".join(f"{k} {v}" for k, v in sorted(d["reasons"].items(), key=lambda kv: -kv[1]))
+        tot = max(d["run"] + d["pend"], 1)
+        rows.append((u, [(100 * d["run"] / tot, GOOD, f"{u}: {d['run']} running", False, None),
+                         (100 * d["pend"] / tot, SERIES[1], f"{u}: {d['pend']} pending ({tip_r})", False, None)],
+                     f'<tspan class="strong">{d["run"]}</tspan> run · <tspan class="strong">{d["pend"]}</tspan> pend · {esc(when)}'))
+    n_run = sum(d["run"] for d in users.values()); n_pend = sum(d["pend"] for d in users.values())
+    return card(f"Lab jobs · {n_run} running · {n_pend} pending · expected start",
+                bars(rows, 100, [0, 50, 100], lambda t: f"{t}%", label_w=110, value_w=330)
+                + legend([("running", GOOD), ("pending (array tasks counted)", SERIES[1])]) + '<p class="muted">Bar = each member\'s share running vs pending; counts on the right.</p>'
+                + '<p class="muted">Expected start = Slurm\'s estimate (squeue --start); many pending jobs have none yet.</p>')
 
 
 def anim_panel():
@@ -523,10 +549,10 @@ def build(params):
     with ThreadPoolExecutor(11) as ex:
         futs = [ex.submit(storage), ex.submit(c.jobs), ex.submit(c.recent, days), ex.submit(c.nodes),
                 ex.submit(c.group_jobs, accounts), ex.submit(c.recent, days, accounts) if who == "lab" else None,
-                ex.submit(c.pending_start), None,
+                ex.submit(c.pending_start), ex.submit(c.pending_lab, accounts),
                 ex.submit(cached, ("eff", days), STORAGE_TTL, c.efficiency, days),
                 ex.submit(cached, "resv", STORAGE_TTL, c.reservations)]
-        st, jb, hist, nd, lab, hist_lab, pend, arr, eff, resv = (f.result() if f else None for f in futs)
+        st, jb, hist, nd, lab, hist_lab, pend, plab, eff, resv = (f.result() if f else None for f in futs)
     hist_lab = hist_lab if who == "lab" else hist
 
     groups = st["groups"]
@@ -598,7 +624,7 @@ def build(params):
     fsc = fs_card(fsys) if fsys else ""
     pend_c = pending_card(pend)
     eff_c, cpu_eff, mem_eff, idle_h = efficiency_card(eff, days)
-    pend_p = pending_panel(pend) + anim_panel()
+    pend_p = pending_panel(lab, plab) + anim_panel()
     big = [r for r in resv if r[6] == "upcoming" or (r[3].isdigit() and int(r[3]) >= 50)]
     resv_c = (f'<section class="card" style="grid-column:1/-1"><details {"open" if big else ""}><summary>Maintenance and reservations '
               f'(upcoming or ≥ 50 nodes: {len(big)} · all active: {len(resv)})</summary>'

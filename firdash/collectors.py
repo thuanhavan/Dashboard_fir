@@ -224,3 +224,19 @@ def reservations(days=30):
             rows.append([kv.get("ReservationName", ""), kv["StartTime"].replace("T", " "), kv["EndTime"].replace("T", " "),
                          kv.get("NodeCnt", ""), kv.get("CoreCnt", ""), kv.get("Flags", ""), "active" if s <= now else "upcoming"])
     return sorted(rows, key=lambda r: r[1])
+
+
+def pending_lab(accounts):
+    """Pending jobs of all members on the given accounts: [jobid, user, name, account, cpus, reason, start, n_tasks]."""
+    if not accounts:
+        return []
+    out = run(f"squeue -A {','.join(sorted(set(accounts)))} -t PD --start -h -o '%i|%u|%j|%a|%C|%r|%S'")
+    rows = []
+    for l in out.splitlines():
+        p = l.split("|")
+        if len(p) < 7:
+            continue
+        task = p[0].split("_", 1)[1] if "_" in p[0] else ""
+        p.append(_ntasks(task.strip("[]")) if task.startswith("[") else 1)
+        rows.append(p)
+    return rows
