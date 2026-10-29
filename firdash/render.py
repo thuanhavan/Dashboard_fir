@@ -297,6 +297,33 @@ def pending_card(pend):
             f'{table(["JobID", "Name", "Account", "CPUs", "Reason", "Expected start"], rows)}</details></section>')
 
 
+ANIM = Path(__file__).resolve().parent.parent / "docs" / "data_anim.gif"   # gifer.com animation; internal use only
+
+
+def _until(start):
+    try:
+        sec = (dt.datetime.fromisoformat(start) - dt.datetime.now()).total_seconds()
+    except ValueError:
+        return "unknown"
+    if sec <= 60:
+        return "now"
+    h, m = int(sec // 3600), int(sec % 3600 // 60)
+    return f"in {h // 24} d {h % 24} h" if h >= 24 else f"in {h} h {m:02d} m" if h else f"in {m} min"
+
+
+def pending_panel(pend):
+    anim = (f'<img class="anim" src="data:image/gif;base64,{base64.b64encode(ANIM.read_bytes()).decode()}" alt="">'
+            if ANIM.is_file() else "")
+    rows = sorted(pend, key=lambda r: (r[5] in ("N/A", ""), r[5]))[:9]
+    items = "".join(
+        f'<div class="prow"><span class="pn" title="{esc(r[0])} · {esc(r[2])}">{esc(r[1])}</span>'
+        f'<span class="pt">{_until(r[5]) if r[5] not in ("N/A", "") else "—"}</span>'
+        f'<span class="pr">{esc(REASONS.get(r[4], r[4]))}</span></div>' for r in rows)
+    more = f'<div class="muted">+ {len(pend) - len(rows)} more in the Pending table</div>' if len(pend) > len(rows) else ""
+    body = items + more if rows else '<p class="muted">No pending jobs: the queue is clear.</p>'
+    return f'<section class="card pend-card">{anim}<h3>Pending jobs · expected start</h3><div class="plist">{body}</div></section>'
+
+
 def efficiency_card(eff, days):
     if not eff:
         return card(f"Job efficiency · last {days} d", '<p class="muted">No finished jobs of 2 min or more in this window.</p>'), None, None, 0
@@ -553,6 +580,7 @@ def build(params):
     fsc = fs_card(fsys) if fsys else ""
     pend_c = pending_card(pend)
     eff_c, cpu_eff, mem_eff, idle_h = efficiency_card(eff, days)
+    pend_p = pending_panel(pend)
     big = [r for r in resv if r[6] == "upcoming" or (r[3].isdigit() and int(r[3]) >= 50)]
     resv_c = (f'<section class="card" style="grid-column:1/-1"><details {"open" if big else ""}><summary>Maintenance and reservations '
               f'(upcoming or ≥ 50 nodes: {len(big)} · all active: {len(resv)})</summary>'
@@ -584,17 +612,17 @@ def build(params):
                  "crit" if cpu_eff is not None and cpu_eff < 50 else ""),
              kpi("▣", "Memory efficiency", "median peak / requested", f"{mem_eff:.0f}%" if mem_eff is not None else "—",
                  "crit" if mem_eff is not None and mem_eff < 30 else "")]
-        body = eff_c + trend + member_chart + bad_chart + bad_ts + lab_card + pend_c + tables
+        body = eff_c + trend + member_chart + bad_chart + bad_ts + lab_card + pend_p + pend_c + tables
     else:
         k = [quota_tile(q) for q in sorted(quotas, key=lambda q: -max(pct(q), pct(q, "files", "fquota")))[:3]] + [
              kpi("▶", "My jobs", "running · pending", f"{len(running)} · {len(pending)}", "good" if running else ""),
              kpi("✗", "My problem jobs", f"last {days} d", len(my_bad), "crit" if my_bad else "")]
         compute = card("Cluster cores now · fairshare", nodes_chart(nd) + legend([("busy", SERIES[0]), ("idle", GOOD), ("down/drained", OTHER)])
                        + '<div style="height:14px"></div>' + fairshare_chart(fs))
-        body = space + files + fsc + proj_u + near_u + trend + compute + lab_card + pend_c + tables
+        body = space + files + fsc + proj_u + near_u + trend + compute + lab_card + pend_p + pend_c + tables
         if params.get("static"):
             body = (space + files + fsc + proj_u + near_u + eff_c + trend + member_chart
-                    + bad_chart + compute + lab_card + bad_ts + pend_c + resv_c + tables)
+                    + bad_chart + compute + lab_card + bad_ts + pend_p + pend_c + resv_c + tables)
 
     title = dict((p, l) for p, _, l in PAGES)[page]
     alert_html = "".join(f'<span class="alert">⚠ {esc(a)}</span>' for a in alerts)
@@ -617,7 +645,7 @@ aside h4{{margin:22px 0 4px;font-size:30px}} .flab{{font-size:12px;color:var(--m
 select{{background:var(--page);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:6px;width:100%;font-size:24px}}
 .about{{margin-top:auto;padding-top:18px;border-top:1px solid var(--border)}}
 .logo{{position:absolute;left:18px;top:50%;transform:translateY(-50%);height:78%;max-height:96px;width:auto;border-radius:6px;z-index:2}}
-.about p{{font-size:24px;color:var(--ink2);line-height:1.5;margin:0 0 12px}}
+.about p{{font-size:17px;color:var(--ink2);line-height:1.5;margin:0 0 12px}}
 .foot{{font-size:22px;color:var(--muted);line-height:1.5}}
 main{{flex:1;padding:22px 28px;min-width:0}}
 .top{{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:8px;padding:12px 18px;margin-bottom:16px}}
@@ -657,6 +685,14 @@ svg .hover{{fill:transparent}} svg .hover:hover{{fill:rgba(255,255,255,.05)}}
 #ov{{position:fixed;inset:0;z-index:50;background:rgba(5,10,20,.65);display:flex;align-items:center;justify-content:center;cursor:zoom-out}}
 #ov>section{{width:min(max(50vw,640px),94vw);max-height:86vh;overflow:auto;box-shadow:0 12px 48px rgba(0,0,0,.55);cursor:zoom-out}}
 #ov>section svg{{max-width:none !important}} #ov .zoom{{background:var(--head);color:var(--ink)}}
+.pend-card{{position:relative;overflow:hidden}}
+.pend-card .anim{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.16;pointer-events:none;filter:saturate(.7);
+ -webkit-mask-image:radial-gradient(ellipse 75% 70% at 50% 55%,#000 15%,transparent 80%);mask-image:radial-gradient(ellipse 75% 70% at 50% 55%,#000 15%,transparent 80%)}}
+.pend-card h3,.pend-card .plist{{position:relative;z-index:1}} .pend-card .zoom{{z-index:2}}
+.prow{{display:grid;grid-template-columns:minmax(0,1.3fr) auto minmax(0,1.6fr);gap:10px;align-items:baseline;padding:6px 2px;border-bottom:1px solid var(--grid);font-size:13px}}
+.prow .pn{{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}} .prow .pt{{color:{GOOD};font-weight:600;font-variant-numeric:tabular-nums}}
+.prow .pr{{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+@media (prefers-reduced-motion:reduce){{.pend-card .anim{{display:none}}}}
 details{{margin:4px 0}} summary{{cursor:pointer;font-size:14px;color:var(--ink2);padding:6px 0}}
 table{{border-collapse:collapse;font-size:12px;width:100%;margin:6px 0 10px;font-variant-numeric:tabular-nums}}
 td,th{{border-bottom:1px solid var(--grid);padding:4px 6px;text-align:left}}
