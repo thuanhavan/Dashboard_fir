@@ -9,6 +9,16 @@ Shows:
 - /project and /nearline usage per user (tape-only hatched)
 - Cluster cores busy/idle by node type, and fairshare per account
 - Job tiles; queue and problem-job tables are collapsed
+- Whole-filesystem fill (all users): /home + /project + /scratch share one Lustre FS; /nearline disk cache
+- Usage trend and "full in N days" forecast per quota (hourly snapshots in `~/.firdash/history.jsonl`; trends appear after a day)
+- Array-job progress (completed / running / pending / failed per array)
+- Pending jobs with Slurm's expected start time and the reason in plain words
+- Job efficiency: peak memory vs requested and CPU efficiency per job name, idle core-hours
+- Maintenance windows and reservations
+
+Compute-page banner `docs/h100.jpg`: NVIDIA H100 illustration from
+[tatacommunications.com](https://www.tatacommunications.com/knowledge-base/cloud-ai/nvidia-h100-gpu), third-party
+image kept for internal lab use only; replace it before sharing the dashboard publicly.
 
 Data comes from `diskusage_report`, `lfs quota` (per-group project ID; `df` misreports /nearline file counts), `diskusage_rbh`, `sinfo`, `squeue`, `sshare` and `sacct`. Storage refreshes every 10 min, everything else every 60 s.
 

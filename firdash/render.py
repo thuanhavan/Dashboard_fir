@@ -1,5 +1,6 @@
 import base64
 import datetime as dt
+import json
 from pathlib import Path
 import socket
 import threading
@@ -8,8 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlencode
 
 from . import collectors as c
-from .charts import (CRIT, GOOD, OTHER, SERIES, WARN_FILL, bars, columns, radial, count, esc, hatch_defs, legend, nice_step, size,
-                     status_fill)
+from .charts import (CRIT, GOOD, OTHER, SERIES, WARN_FILL, bars, columns, radial, count, esc, hatch_defs, legend, line, nice_step,
+                     size, status_fill)
 
 CACHE_TTL = 60
 STORAGE_TTL = 600
@@ -18,6 +19,51 @@ PAGES = [("overview", "◉", "Overview"), ("storage", "▤", "Storage"), ("compu
 FILESYSTEMS = ["project", "nearline", "home", "scratch"]
 _slow = {"t": 0, "data": None}
 _lock = threading.Lock()
+_ttl_cache = {}
+HISTORY = Path.home() / ".firdash" / "history.jsonl"
+HISTORY_EVERY = 3300
+
+
+def cached(key, ttl, fn, *args):
+    t, v = _ttl_cache.get(key, (0, None))
+    if v is None or time.time() - t > ttl:
+        v = fn(*args)
+        _ttl_cache[key] = (time.time(), v)
+    return v
+
+
+def record_history(rows):
+    """Append one usage snapshot per ~hour to ~/.firdash/history.jsonl (drives trends and 'full in' forecasts)."""
+    try:
+        HISTORY.parent.mkdir(parents=True, exist_ok=True)
+        last = 0.0
+        if HISTORY.exists():
+            with open(HISTORY, "rb") as f:
+                f.seek(max(0, HISTORY.stat().st_size - 4096))
+                tail = f.read().decode(errors="replace").strip().splitlines()
+                last = json.loads(tail[-1])["t"] if tail else 0.0
+        if time.time() - last < HISTORY_EVERY:
+            return
+        snap = {"t": time.time(), "q": {r["label"]: [r["used"], r["quota"], r["files"], r["fquota"]] for r in rows}}
+        with open(HISTORY, "a") as f:
+            f.write(json.dumps(snap) + "\n")
+    except (OSError, ValueError, KeyError):
+        pass
+
+
+def load_history(days=30):
+    if not HISTORY.exists():
+        return []
+    cut = time.time() - days * 86400
+    out = []
+    for l in HISTORY.read_text(errors="replace").splitlines():
+        try:
+            d = json.loads(l)
+        except ValueError:
+            continue
+        if d.get("t", 0) >= cut:
+            out.append(d)
+    return out
 
 
 def storage():
@@ -32,9 +78,11 @@ def _storage():
             gq = ex.submit(c.group_quotas)
             uq = ex.submit(c.user_quotas)
             bd = {(fs, g): ex.submit(c.user_breakdown, fs, g) for fs in ("project", "nearline") for g in gs}
-            _slow["data"] = {"groups": gs, "quotas": gq.result() + uq.result(),
+            fsys = ex.submit(c.filesystems)
+            _slow["data"] = {"groups": gs, "quotas": gq.result() + uq.result(), "filesystems": fsys.result(),
                              "breakdown": {k: f.result() for k, f in bd.items()}}
         _slow["t"] = time.time()
+        record_history(_slow["data"]["quotas"] + _slow["data"]["filesystems"])
     return _slow["data"]
 
 
@@ -124,7 +172,7 @@ def jobs_per_day(hist, days):
         elif r[2].split()[0] in BAD_STATES:
             bad[i] += 1
     labels = [d.strftime("%b %d") for d in dates]
-    return columns(labels, [("completed", SERIES[0], ok), ("problems", CRIT, bad)]) + legend([("completed", SERIES[0]), ("problems", CRIT)])
+    return line(labels, [("completed", SERIES[0], ok), ("problems", CRIT, bad)]) + legend([("completed", SERIES[0]), ("problems", CRIT)])
 
 
 STATE_COLORS = {"FAILED": CRIT, "TIMEOUT": "#ec835a", "OUT_OF_MEMORY": WARN_FILL, "NODE_FAIL": "#9085e9",
@@ -162,7 +210,126 @@ def problems_over_time(rows, days, colors, me):
         return '<p class="muted">No problem jobs.</p>'
     order = sorted(per, key=lambda u: -sum(per[u]))
     series = [(u, colors.get(u, OTHER), per[u]) for u in order]
-    return columns([d.strftime("%b %d") for d in dates], series) + legend([(u, col) for u, col, _ in series])
+    return line([d.strftime("%b %d") for d in dates], series) + legend([(u, col) for u, col, _ in series])
+
+
+def forecast(hist, labels, key, qkey):
+    """{label: (now %, % points per day over the last 7 days, days until 100 % or None)} from history snapshots."""
+    i, qi = (0, 1) if key == "used" else (2, 3)
+    out = {}
+    for lab in labels:
+        pts = [(d["t"] / 86400, 100 * d["q"][lab][i] / max(d["q"][lab][qi], 1)) for d in hist if lab in d["q"]]
+        pts = [p for p in pts if p[0] >= pts[-1][0] - 7] if pts else []
+        if len(pts) < 2 or pts[-1][0] - pts[0][0] < 0.5:
+            out[lab] = (pts[-1][1] if pts else None, None, None)
+            continue
+        n = len(pts)
+        mx, my = sum(p[0] for p in pts) / n, sum(p[1] for p in pts) / n
+        sxx = sum((p[0] - mx) ** 2 for p in pts)
+        slope = sum((p[0] - mx) * (p[1] - my) for p in pts) / sxx if sxx else 0.0
+        now = pts[-1][1]
+        out[lab] = (now, slope, (100 - now) / slope if slope > 1e-6 and now < 100 else None)
+    return out
+
+
+def trend_card(hist, quotas):
+    labels = [q["label"] for q in sorted(quotas, key=lambda q: -max(pct(q), pct(q, "files", "fquota")))]
+    fc_s, fc_f = forecast(hist, labels, "used", "quota"), forecast(hist, labels, "files", "fquota")
+    full = lambda d: "—" if d is None else ("< 1 day" if d < 1 else f"{d:.0f} days" if d < 365 else "> 1 year")
+    rate = lambda r: "—" if r is None else f"{7 * r:+.1f} pp/week"
+    rows = [[lab, f"{fc_s[lab][0]:.1f}%" if fc_s[lab][0] is not None else "—", rate(fc_s[lab][1]), full(fc_s[lab][2]),
+             f"{fc_f[lab][0]:.1f}%" if fc_f[lab][0] is not None else "—", rate(fc_f[lab][1]), full(fc_f[lab][2])] for lab in labels]
+    days = sorted({dt.date.fromtimestamp(d["t"]) for d in hist})
+    chart = '<p class="muted">Collecting history: one snapshot per hour is kept in ~/.firdash/history.jsonl; trends appear after a day.</p>'
+    if len(days) >= 2:
+        series = []
+        for k, lab in enumerate(labels[:6]):
+            last, vals = 0.0, []
+            for day in days:
+                v = [100 * d["q"][lab][0] / max(d["q"][lab][1], 1) for d in hist if lab in d["q"] and dt.date.fromtimestamp(d["t"]) == day]
+                last = v[-1] if v else last
+                vals.append(round(last, 1))
+            series.append((lab, SERIES[k % len(SERIES)], vals))
+        chart = line([d.strftime("%b %d") for d in days], series)
+    return card("Usage trend and forecast · space % of quota", chart + table(
+        ["Quota", "Space now", "Space trend", "Space full in", "Files now", "Files trend", "Files full in"], rows), 2)
+
+
+def fs_card(fsys):
+    files = [dict(r, used=r["files"], quota=r["fquota"]) for r in fsys]
+    return card("Whole filesystems · all users (not your quota)",
+                '<div class="flab">space</div>' + quota_chart(fsys, "used", "quota", size)
+                + '<div class="flab">files (inodes)</div>' + quota_chart(files, "used", "quota", count))
+
+
+def arrays_card(arr):
+    if not arr:
+        return card("Array jobs", '<p class="muted">No array jobs in this window.</p>')
+    active = lambda d: d["RUNNING"] + d["PENDING"] > 0
+    keys = sorted(arr, key=lambda k: (not active(arr[k]), "" if active(arr[k]) else arr[k]["end"]), reverse=False)
+    keys = [k for k in keys if active(arr[k])] + sorted((k for k in keys if not active(arr[k])), key=lambda k: arr[k]["end"], reverse=True)
+    rows = []
+    for k in keys[:12]:
+        d = arr[k]
+        tot = d["COMPLETED"] + d["RUNNING"] + d["PENDING"] + d["BAD"]
+        rows.append((f"{k} {d['name']}"[:22], [(100 * d["COMPLETED"] / tot, SERIES[0], f"{d['COMPLETED']} completed", False, None),
+                                              (100 * d["RUNNING"] / tot, GOOD, f"{d['RUNNING']} running", False, None),
+                                              (100 * d["PENDING"] / tot, SERIES[1], f"{d['PENDING']} pending", False, None),
+                                              (100 * d["BAD"] / tot, CRIT, f"{d['BAD']} failed/cancelled/timeout", False, None)],
+                     f'<tspan class="strong">{d["COMPLETED"]}/{tot}</tspan> done' + (f' · {d["BAD"]} bad' if d["BAD"] else "")))
+    return card(f"Array jobs · {sum(active(d) for d in arr.values())} active", bars(rows, 100, [0, 50, 100], lambda t: f"{t}%", label_w=170, value_w=150)
+                + legend([("completed", SERIES[0]), ("running", GOOD), ("pending", SERIES[1]), ("failed", CRIT)]))
+
+
+REASONS = {"Priority": "waiting for higher-priority jobs", "Resources": "next in line, waiting for free nodes",
+           "Dependency": "waits for another job", "DependencyNeverSatisfied": "dependency failed: will never start",
+           "AssocGrpCPULimit": "account core limit reached", "QOSMaxJobsPerUserLimit": "per-user job limit",
+           "ReqNodeNotAvail": "requested nodes unavailable (maintenance?)", "BeginTime": "scheduled for later"}
+
+
+def pending_card(pend):
+    rows = []
+    for r in pend[:200]:
+        jid, name, acct, cpus, reason, start = (r + [""] * 6)[:6]
+        rows.append([jid, name, acct, cpus, f"{reason} · {REASONS.get(reason, '')}".rstrip(" ·"),
+                     start.replace("T", " ") if start not in ("N/A", "") else "unknown"])
+    return (f'<section class="card" style="grid-column:1/-1"><details {"open" if pend else ""}><summary>Pending jobs: expected start and reason ({len(pend)})</summary>'
+            f'{table(["JobID", "Name", "Account", "CPUs", "Reason", "Expected start"], rows)}</details></section>')
+
+
+def efficiency_card(eff, days):
+    if not eff:
+        return card(f"Job efficiency · last {days} d", '<p class="muted">No finished jobs of 2 min or more in this window.</p>'), None, None, 0
+    by = {}
+    for j in eff:
+        d = by.setdefault(j["name"], {"n": 0, "core_s": 0.0, "cpu_s": 0.0, "req": 0.0, "peak": 0.0, "mem_eff": []})
+        d["n"] += 1
+        d["core_s"] += j["elapsed"] * j["cpus"]
+        d["cpu_s"] += j["cpu"]
+        d["req"] = max(d["req"], j["req"])
+        d["peak"] = max(d["peak"], j["rss"])
+        if j["req"] > 0:
+            d["mem_eff"].append(j["rss"] / j["req"])
+    top = sorted(by.items(), key=lambda kv: -kv[1]["core_s"])[:10]
+    xmax = max([d["req"] for _, d in top] + [1])
+    rows = []
+    for name, d in top:
+        ce = 100 * d["cpu_s"] / max(d["core_s"], 1)
+        me = 100 * sorted(d["mem_eff"])[len(d["mem_eff"]) // 2] if d["mem_eff"] else 0
+        rows.append((name[:20], [(d["peak"], SERIES[0], f"{name}: peak memory {size(d['peak'])} (max over {d['n']} jobs)", False, None),
+                                 (max(d["req"] - d["peak"], 0), OTHER, f"{name}: requested {size(d['req'])}, never used {size(max(d['req'] - d['peak'], 0))}", True, None)],
+                     f'mem <tspan class="strong">{me:.0f}%</tspan> · CPU <tspan class="strong">{ce:.0f}%</tspan> · {d["n"]} jobs'))
+    step = nice_step(xmax / 2**30)
+    ticks = [t * 2**30 for t in range(0, int(xmax / 2**30) + 1, max(int(step), 1))]
+    chart = bars(rows, xmax, ticks, lambda t: f"{t / 2**30:.0f}", label_w=150, value_w=210)
+    core_s = sum(j["elapsed"] * j["cpus"] for j in eff)
+    cpu_eff = 100 * sum(j["cpu"] for j in eff) / max(core_s, 1)
+    mem = sorted(j["rss"] / j["req"] for j in eff if j["req"] > 0)
+    mem_eff = 100 * mem[len(mem) // 2] if mem else None
+    idle_h = (core_s - sum(j["cpu"] for j in eff)) / 3600
+    body = (chart + legend([("peak memory used", SERIES[0])]) .replace("</div>", '<span><i class="hatch"></i>requested, never used</span></div>')
+            + '<p class="muted">GiB. Per job name, top 10 by core-hours; mem = median peak / requested; CPU = CPU time / (elapsed × cores).</p>')
+    return card(f"Job efficiency · last {days} d · {len(eff)} jobs", body), cpu_eff, mem_eff, idle_h
 
 
 def kpi(icon, title, sub, value, cls="", bar=None):
@@ -192,15 +359,24 @@ def table(headers, rows):
 
 
 LOGO = Path(__file__).resolve().parent.parent / "docs" / "logo.png"
-ABOUT = ("A quick view of your Alliance Fir resources: storage quotas and file counts, who uses the "
+ABOUT = ("A quick view of your DRAC (Fir cluster) resources: storage quotas and file counts, who uses the "
          "group space, cluster load, fairshare, and the jobs of you and your lab. "
-         "Read-only: it only reads Fir's own reports under your account.")
+         "Read-only: it only reads the cluster's own reports under your account.")
 
 
 def logo():
     if not LOGO.is_file():
         return ""
     return f'<img class="logo" src="data:image/png;base64,{base64.b64encode(LOGO.read_bytes()).decode()}" alt="logo">'
+
+
+HERO = Path(__file__).resolve().parent.parent / "docs" / "h100.jpg"   # image: tatacommunications.com (NVIDIA H100); internal use only
+
+
+def hero():
+    if not HERO.is_file():
+        return ""
+    return f'<img class="hero" src="data:image/jpeg;base64,{base64.b64encode(HERO.read_bytes()).decode()}" alt="">'
 
 
 def about():
@@ -216,10 +392,11 @@ def sidebar(page, groups, sel_groups, sel_fs, days, who="me"):
         for o in opts)
     dsel = "".join(f'<option {"selected" if d == days else ""}>{d}</option>' for d in (7, 14, 30, 90))
     return f"""<aside>
-{logo()}<div class="brand">▲ Fir <small>{esc(c.USER)}</small></div>
+<div class="brand">▲ DRAC <small>{esc(c.USER)}</small></div>
 <nav>{nav}</nav>
+<h4>Boards</h4><div id="boards" class="boards"></div>
 <form id="f" method="get">
- <input type="hidden" name="p" value="{page}"><input type="hidden" name="g"><input type="hidden" name="fs">
+ <input type="hidden" name="p" value="{page}"><input type="hidden" name="g"><input type="hidden" name="fs"><input type="hidden" name="b">
  <h4>Filter here</h4>
  <div class="flab">Groups</div><div class="chips" data-for="g">{chips("gx", groups, sel_groups)}</div>
  <div class="flab">Filesystems</div><div class="chips" data-for="fs">{chips("fsx", FILESYSTEMS, sel_fs)}</div>
@@ -233,8 +410,9 @@ def sidebar(page, groups, sel_groups, sel_fs, days, who="me"):
 
 def static_sidebar(days):
     return f"""<aside>
-{logo()}<div class="brand">▲ Fir <small>{esc(c.USER)}</small></div>
+<div class="brand">▲ DRAC <small>{esc(c.USER)}</small></div>
 <nav><a class="nav on"><span>◉</span>Snapshot</a></nav>
+<h4>Boards</h4><div id="boards" class="boards"></div>
 <div class="flab">All groups · all filesystems · jobs of all members, last {days} d</div>
 {about()}
 <div class="foot">{time.strftime('%Y-%m-%d %H:%M')} · {socket.gethostname().split('.')[0]}<br>static snapshot: rerun to refresh</div>
@@ -247,6 +425,45 @@ function go(){const f=document.getElementById('f');
   f.elements[d.dataset.for].value=[...d.querySelectorAll('input:checked')].map(i=>i.value).join(',')||'none';
   d.querySelectorAll('input').forEach(i=>i.disabled=true);}
  f.submit();}
+function focusB(key){
+ const old=document.getElementById('ov'); if(old) old.remove();
+ document.body.classList.toggle('focus',!!key);
+ document.querySelectorAll('#boards .bd').forEach(b=>b.classList.toggle('sel',(b.dataset.key||'')===key));
+ const f=document.getElementById('f'); if(f&&f.elements.b) f.elements.b.value=key;
+ const u=new URL(location.href); u.searchParams.delete('b'); u.hash=key; history.replaceState(null,'',u);
+ const s=key&&document.querySelector('.grid>section[data-key="'+key+'"]'); if(!s) return;
+ const ov=document.createElement('div'); ov.id='ov';
+ const c=s.cloneNode(true); c.style.gridColumn=''; c.querySelectorAll('details').forEach(d=>d.open=true);
+ const z=c.querySelector('.zoom'); if(z){z.textContent='\\u2715'; z.title='Close (Esc)';}
+ ov.appendChild(c); document.body.appendChild(ov);
+ ov.addEventListener('click',e=>{if(e.target.closest('summary,a,input,select,label,table')&&!e.target.closest('.zoom')) return;
+  if(window.getSelection&&String(window.getSelection())) return; focusB('');});}
+(function(){
+ const g=document.querySelector('.grid'), list=document.getElementById('boards'); if(!g||!list) return;
+ const all=document.createElement('button'); all.className='bd all'; all.dataset.key=''; all.textContent='\\u25A6 All panels';
+ all.onclick=()=>focusB(''); list.appendChild(all);
+ [...g.children].forEach((s,i)=>{
+  const h=s.querySelector('h3,summary'); const full=(h?h.textContent:'Board '+(i+1)).trim();
+  const name=full.split(/ \\u00B7 |\\(/)[0].trim().replace(/:$/,'');
+  let key=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||('b'+i);
+  while(g.querySelector('[data-key="'+key+'"]')) key+='-'+i;
+  s.dataset.key=key;
+  const SHORT=[['space quota','Space'],['file-count','Files'],['whole filesystems','Filesystems'],['/project by user','Project use'],
+   ['/nearline by user','Nearline use'],['job efficiency','Efficiency'],['jobs finished per day','Jobs / day'],['jobs by member','Members'],
+   ['problem jobs by member','Problems'],['problem jobs per day','Problems / day'],['cluster cores','Cores'],['fairshare','Fairshare'],
+   ['lab queue,','Lab queue list'],['lab queue','Lab queue'],['pending jobs','Pending'],['maintenance','Maintenance'],['queue','Queue']];
+  const low=full.toLowerCase(); const hit=SHORT.find(p=>low.startsWith(p[0]));
+  const b=document.createElement('button'); b.className='bd'; b.dataset.key=key; b.textContent=hit?hit[1]:name.split(' ').slice(0,2).join(' '); b.title=full;
+  b.onclick=()=>focusB(key); list.appendChild(b);
+  const z=document.createElement('button'); z.className='zoom'; z.title='Enlarge / back to all boards (Esc)'; z.textContent='\\u2922';
+  z.onclick=e=>{e.preventDefault();e.stopPropagation();focusB(key);}; s.prepend(z);
+  s.addEventListener('click',e=>{
+   if(e.target.closest('summary,a,button,input,select,label,table')) return;
+   if(window.getSelection&&String(window.getSelection())) return;
+   focusB(key);});});
+ const want=new URLSearchParams(location.search).get('b')||decodeURIComponent(location.hash.slice(1));
+ if(want&&g.querySelector('[data-key="'+want+'"]')) focusB(want);
+ document.addEventListener('keydown',e=>{if(e.key==='Escape') focusB('');});})();
 </script>"""
 
 
@@ -258,10 +475,13 @@ def build(params):
 
     fs = c.fairshare()
     accounts = [r[0] for r in fs]
-    with ThreadPoolExecutor(7) as ex:
+    with ThreadPoolExecutor(11) as ex:
         futs = [ex.submit(storage), ex.submit(c.jobs), ex.submit(c.recent, days), ex.submit(c.nodes),
-                ex.submit(c.group_jobs, accounts), ex.submit(c.recent, days, accounts) if who == "lab" else None]
-        st, jb, hist, nd, lab, hist_lab = (f.result() if f else None for f in futs)
+                ex.submit(c.group_jobs, accounts), ex.submit(c.recent, days, accounts) if who == "lab" else None,
+                ex.submit(c.pending_start), None,
+                ex.submit(cached, ("eff", days), STORAGE_TTL, c.efficiency, days),
+                ex.submit(cached, "resv", STORAGE_TTL, c.reservations)]
+        st, jb, hist, nd, lab, hist_lab, pend, arr, eff, resv = (f.result() if f else None for f in futs)
     hist_lab = hist_lab if who == "lab" else hist
 
     groups = st["groups"]
@@ -329,61 +549,84 @@ def build(params):
               f'<details><summary>Lab queue, all members ({len(lab)})</summary>{table(["JobID","User","Name","State","Elapsed","Limit","CPUs","Account","Node / Reason"], lab)}</details>'
               f'<details><summary>Problem jobs, {scope}, last {days} days ({len(bad)})</summary>{table(["JobID","Name","State","Elapsed","Limit","ReqMem","Exit","Account","End","User"], bad[::-1][:300])}</details></section>')
 
+    fsys = st.get("filesystems", [])
+    fsc = fs_card(fsys) if fsys else ""
+    pend_c = pending_card(pend)
+    eff_c, cpu_eff, mem_eff, idle_h = efficiency_card(eff, days)
+    big = [r for r in resv if r[6] == "upcoming" or (r[3].isdigit() and int(r[3]) >= 50)]
+    resv_c = (f'<section class="card" style="grid-column:1/-1"><details {"open" if big else ""}><summary>Maintenance and reservations '
+              f'(upcoming or ≥ 50 nodes: {len(big)} · all active: {len(resv)})</summary>'
+              f'{table(["Name", "Start", "End", "Nodes", "Cores", "Flags", "State"], big + [r for r in resv if r not in big])}</details></section>')
+    starts = sorted(r[5] for r in pend if r[5] not in ("N/A", ""))
+    next_start = starts[0][5:16].replace("T", " ") if starts else "—"
+    shared = next((r for r in fsys if "/project" in r["label"]), None)
+
     if page == "storage":
-        k = [quota_tile(q) for q in quotas]
-        body = space + files + proj_u + near_u
+        k = [quota_tile(q) for q in quotas] + ([kpi("◍", "Shared Lustre", "whole FS used · all users", f"{pct(shared):.0f}%",
+                                                    "crit" if pct(shared) >= 95 else "", pct(shared))] if shared else [])
+        body = space + files + fsc + proj_u + near_u
     elif page == "compute":
         my_cores = sum(int(r[6]) for r in running if r[6].isdigit())
         k = [kpi("▦", "Regular CPU", "idle cores", count(reg[1]), "good"),
              kpi("▦", "GPU nodes", "idle cores", count(gpu[1]), "good"),
              kpi("⚖", "Fairshare", "lowest account", f"{min_fs:.2f}"),
              kpi("▶", "My running", "cores in use", my_cores),
-             kpi("◷", "My pending", "jobs", len(pending))]
-        body = cores + fair
+             kpi("◷", "My pending", f"jobs · next start {next_start}", len(pending))]
+        body = cores + fair + pend_c + resv_c
     elif page == "jobs":
         lab_run = sum(1 for r in lab if r[3] == "RUNNING")
         k = [kpi("▶", "Running", f"jobs now · {scope}", lab_run if who == "lab" else len(running), "good"),
              kpi("◷", "Pending", f"jobs now · {scope}", len(lab) - lab_run if who == "lab" else len(pending)),
              kpi("✓", "Completed", f"last {days} d", ok),
              kpi("✗", "Problems", f"last {days} d", len(bad), "crit" if bad else ""),
-             kpi("%", "Success rate", f"last {days} d", f"{100 * ok / max(ok + len(bad), 1):.0f}%")]
-        body = trend + member_chart + bad_chart + bad_ts + lab_card + tables
+             kpi("%", "Success rate", f"last {days} d", f"{100 * ok / max(ok + len(bad), 1):.0f}%"),
+             kpi("⚙", "CPU efficiency", f"my jobs · {idle_h:,.0f} core-h idle", f"{cpu_eff:.0f}%" if cpu_eff is not None else "—",
+                 "crit" if cpu_eff is not None and cpu_eff < 50 else ""),
+             kpi("▣", "Memory efficiency", "median peak / requested", f"{mem_eff:.0f}%" if mem_eff is not None else "—",
+                 "crit" if mem_eff is not None and mem_eff < 30 else "")]
+        body = eff_c + trend + member_chart + bad_chart + bad_ts + lab_card + pend_c + tables
     else:
         k = [quota_tile(q) for q in sorted(quotas, key=lambda q: -max(pct(q), pct(q, "files", "fquota")))[:3]] + [
              kpi("▶", "My jobs", "running · pending", f"{len(running)} · {len(pending)}", "good" if running else ""),
              kpi("✗", "My problem jobs", f"last {days} d", len(my_bad), "crit" if my_bad else "")]
         compute = card("Cluster cores now · fairshare", nodes_chart(nd) + legend([("busy", SERIES[0]), ("idle", GOOD), ("down/drained", OTHER)])
                        + '<div style="height:14px"></div>' + fairshare_chart(fs))
-        body = space + files + proj_u + near_u + trend + compute + lab_card + tables
+        body = space + files + fsc + proj_u + near_u + trend + compute + lab_card + pend_c + tables
         if params.get("static"):
-            body = space + files + proj_u + near_u + trend + member_chart + bad_chart + compute + lab_card + bad_ts + tables
+            body = (space + files + fsc + proj_u + near_u + eff_c + trend + member_chart
+                    + bad_chart + compute + lab_card + bad_ts + pend_c + resv_c + tables)
 
     title = dict((p, l) for p, _, l in PAGES)[page]
     alert_html = "".join(f'<span class="alert">⚠ {esc(a)}</span>' for a in alerts)
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Fir · {title}</title>
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Research Computing Dashboard · {title}</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root{{--page:#0b1424;--side:#111d33;--surface:#13213a;--head:#1b3358;--ink:#f0efec;--ink2:#c3c2b7;--muted:#8f97a8;
 --grid:#22324f;--track:#1c2c48;--border:rgba(255,255,255,.10);--accent:{SERIES[0]}}}
 *{{box-sizing:border-box}}
 body{{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--page);color:var(--ink);display:flex;min-height:100vh}}
-aside{{width:250px;flex-shrink:0;background:var(--side);padding:18px 16px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh;overflow:auto}}
-.brand{{font-size:20px;font-weight:700;margin-bottom:12px}} .brand small{{font-size:12px;color:var(--muted);font-weight:400;margin-left:6px}}
-.nav{{display:flex;gap:10px;align-items:center;padding:9px 12px;border-radius:8px;color:var(--ink2);text-decoration:none;font-size:14px}}
+aside{{width:380px;flex-shrink:0;background:var(--side);padding:18px 16px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh;overflow:auto}}
+.brand{{font-size:40px;font-weight:700;margin-bottom:12px}} .brand small{{font-size:24px;color:var(--muted);font-weight:400;margin-left:6px}}
+.nav{{display:flex;gap:10px;align-items:center;padding:9px 12px;border-radius:8px;color:var(--ink2);text-decoration:none;font-size:28px}}
 .nav:hover{{background:var(--track)}} .nav.on{{background:var(--head);color:var(--ink);font-weight:600}}
-.nav span{{width:18px;text-align:center}}
-aside h4{{margin:22px 0 4px;font-size:15px}} .flab{{font-size:12px;color:var(--muted);margin:12px 0 6px}}
+.nav span{{width:36px;text-align:center}}
+aside h4{{margin:22px 0 4px;font-size:30px}} .flab{{font-size:12px;color:var(--muted);margin:12px 0 6px}} aside .flab{{font-size:24px}}
 .chips{{display:flex;flex-wrap:wrap;gap:6px;background:var(--page);padding:8px;border-radius:8px}}
-.chip{{font-size:12.5px;background:var(--track);border-radius:5px;padding:4px 8px;cursor:pointer;color:var(--ink2)}}
+.chip{{font-size:25px;background:var(--track);border-radius:5px;padding:4px 8px;cursor:pointer;color:var(--ink2)}}
 .chip:has(input:checked){{background:#1f4f6e;color:var(--ink)}} .chip input{{display:none}}
-select{{background:var(--page);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:6px;width:100%}}
+select{{background:var(--page);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:6px;width:100%;font-size:24px}}
 .about{{margin-top:auto;padding-top:18px;border-top:1px solid var(--border)}}
-.logo{{display:block;width:100%;height:auto;margin:0 0 14px;border-radius:6px}}
-.about p{{font-size:12px;color:var(--ink2);line-height:1.5;margin:0 0 12px}}
-.foot{{font-size:11px;color:var(--muted);line-height:1.5}}
+.logo{{position:absolute;left:18px;top:50%;transform:translateY(-50%);height:78%;max-height:96px;width:auto;border-radius:6px;z-index:2}}
+.about p{{font-size:24px;color:var(--ink2);line-height:1.5;margin:0 0 12px}}
+.foot{{font-size:22px;color:var(--muted);line-height:1.5}}
 main{{flex:1;padding:22px 28px;min-width:0}}
 .top{{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);border-radius:8px;padding:12px 18px;margin-bottom:16px}}
-.top h1{{font-size:20px;margin:0}}
+.top{{position:relative;min-height:110px}} .top h1{{flex:1;text-align:center;font-size:44px;line-height:1.15;margin:0;letter-spacing:.3px}} .top h1 .pg{{display:block;font-size:18px;font-weight:500;color:var(--muted);margin-top:6px;letter-spacing:0}} .top>div:last-child{{position:absolute;right:18px;top:10px;z-index:2}}
+.top.hero-on{{position:relative;overflow:hidden;min-height:140px;background:linear-gradient(90deg,var(--page) 0,var(--page) 35%,#0d1d36 100%)}}
+.top .hero{{position:absolute;right:0;top:50%;transform:translateY(-50%);height:150%;width:auto;opacity:.8;pointer-events:none;
+ -webkit-mask-image:radial-gradient(ellipse 55% 50% at 60% 50%,#000 30%,transparent 72%);mask-image:radial-gradient(ellipse 55% 50% at 60% 50%,#000 30%,transparent 72%)}}
+.top.hero-on h1,.top.hero-on>div{{position:relative;z-index:1}}
+@media (max-width:820px){{.top .hero{{opacity:.35}}}}
 .alert{{display:inline-block;background:{CRIT};color:#fff;border-radius:12px;padding:3px 10px;margin-left:6px;font-size:12px;font-weight:600}}
 .kpis{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:16px;margin-bottom:18px}}
 .kpi-h{{background:var(--head);border-radius:6px;padding:10px 14px;font-size:14px;margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
@@ -404,6 +647,16 @@ svg .hover{{fill:transparent}} svg .hover:hover{{fill:rgba(255,255,255,.05)}}
 .legend{{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink2);margin-top:6px}}
 .legend i{{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}}
 .legend .hatch{{background:repeating-linear-gradient(45deg,var(--muted) 0 2px,transparent 2px 5px);border:1px solid var(--muted)}}
+.boards{{display:flex;flex-direction:column;gap:1px}}
+.bd{{background:none;border:0;color:var(--ink2);text-align:left;padding:3px 8px;border-radius:5px;font-size:24px;cursor:pointer;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.bd:hover{{background:var(--track)}} .bd.sel{{background:var(--head);color:var(--ink);font-weight:600}} .bd.all{{color:var(--ink)}}
+.grid>section{{position:relative;cursor:zoom-in}} .grid>section table,.grid>section summary{{cursor:auto}} .grid>section summary{{cursor:pointer}} .card h3{{padding-right:34px}} details>summary{{padding-right:34px}}
+.zoom{{position:absolute;top:10px;right:12px;width:26px;height:24px;border:0;border-radius:5px;background:var(--track);color:var(--ink2);
+ cursor:pointer;font-size:14px;line-height:24px;padding:0}} .zoom:hover{{background:var(--head);color:var(--ink)}}
+#ov{{position:fixed;inset:0;z-index:50;background:rgba(5,10,20,.65);display:flex;align-items:center;justify-content:center;cursor:zoom-out}}
+#ov>section{{width:min(max(50vw,640px),94vw);max-height:86vh;overflow:auto;box-shadow:0 12px 48px rgba(0,0,0,.55);cursor:zoom-out}}
+#ov>section svg{{max-width:none !important}} #ov .zoom{{background:var(--head);color:var(--ink)}}
 details{{margin:4px 0}} summary{{cursor:pointer;font-size:14px;color:var(--ink2);padding:6px 0}}
 table{{border-collapse:collapse;font-size:12px;width:100%;margin:6px 0 10px;font-variant-numeric:tabular-nums}}
 td,th{{border-bottom:1px solid var(--grid);padding:4px 6px;text-align:left}}
@@ -411,11 +664,12 @@ details{{overflow-x:auto}}
 @media (max-width:820px){{
  body{{display:block}}
  aside{{position:static;width:auto;height:auto;padding:14px}}
- .logo{{max-width:320px}} .about,.foot{{display:none}}
- main{{padding:12px}} .top{{flex-direction:column;align-items:flex-start;gap:8px}}
+ .logo{{position:static;transform:none;height:56px}} .about,.foot{{display:none}}
+ main{{padding:12px}} .top{{flex-direction:column;align-items:center;gap:8px}} .top h1{{font-size:28px}} .top>div:last-child{{position:static}}
  .kpis{{grid-template-columns:repeat(2,1fr);gap:10px}} .kpi-b b{{font-size:24px}}
  .card{{padding:12px}}
  nav{{display:flex;flex-wrap:wrap;gap:4px}}
+ .boards{{flex-direction:row;flex-wrap:wrap}} .bd{{background:var(--track);font-size:12px;padding:4px 8px}}
 }}
 @media (min-width:600px) and (max-width:820px){{
  .kpis{{grid-template-columns:repeat(3,1fr)}}
@@ -425,7 +679,7 @@ details{{overflow-x:auto}}
 <svg width="0" height="0" style="position:absolute"><defs>{hatch_defs(list(colors.values()) + [OTHER])}</defs></svg>
 {static_sidebar(days) if params.get("static") else sidebar(page, groups, sel_groups, sel_fs, days, who)}
 <main>
-<div class="top"><h1>{title}</h1><div>{alert_html}</div></div>
+<div class="top{' hero-on' if (page == 'compute' or params.get('static')) and HERO.is_file() else ''}">{hero() if (page == 'compute' or params.get('static')) else ''}{logo()}<h1>Research Computing Dashboard</h1><div>{alert_html}</div></div>
 <div class="kpis">{"".join(k)}</div>
 <div class="grid">{body}</div>
 </main>
