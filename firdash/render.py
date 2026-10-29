@@ -662,7 +662,7 @@ aside h4{{margin:22px 0 4px;font-size:30px}} .flab{{font-size:12px;color:var(--m
 .chip:has(input:checked){{background:#1f4f6e;color:var(--ink)}} .chip input{{display:none}}
 select{{background:var(--page);color:var(--ink);border:1px solid var(--border);border-radius:6px;padding:6px;width:100%;font-size:24px}}
 .about{{margin-top:auto;padding-top:18px;border-top:1px solid var(--border)}}
-.logo{{position:absolute;left:18px;top:50%;transform:translateY(-50%);height:78%;max-height:96px;width:auto;border-radius:6px;z-index:2}}
+.logo{{position:absolute;left:18px;top:0;bottom:0;height:100%;width:auto;border-radius:0;z-index:2}}
 .about p{{font-size:17px;color:var(--ink2);line-height:1.5;margin:0 0 12px}}
 .foot{{font-size:22px;color:var(--muted);line-height:1.5}}
 main{{flex:1;padding:22px 28px;min-width:0}}
