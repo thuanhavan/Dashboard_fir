@@ -686,13 +686,12 @@ svg .hover{{fill:transparent}} svg .hover:hover{{fill:rgba(255,255,255,.05)}}
 #ov>section{{width:min(max(50vw,640px),94vw);max-height:86vh;overflow:auto;box-shadow:0 12px 48px rgba(0,0,0,.55);cursor:zoom-out}}
 #ov>section svg{{max-width:none !important}} #ov .zoom{{background:var(--head);color:var(--ink)}}
 .pend-card{{position:relative;overflow:hidden}}
-.pend-card .anim{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.16;pointer-events:none;filter:saturate(.7);
- -webkit-mask-image:radial-gradient(ellipse 75% 70% at 50% 55%,#000 15%,transparent 80%);mask-image:radial-gradient(ellipse 75% 70% at 50% 55%,#000 15%,transparent 80%)}}
+.pend-card .anim{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.28;pointer-events:none;filter:saturate(.85);
+ -webkit-mask-image:radial-gradient(ellipse 80% 75% at 50% 55%,#000 25%,transparent 85%);mask-image:radial-gradient(ellipse 80% 75% at 50% 55%,#000 25%,transparent 85%)}}
 .pend-card h3,.pend-card .plist{{position:relative;z-index:1}} .pend-card .zoom{{z-index:2}}
 .prow{{display:grid;grid-template-columns:minmax(0,1.3fr) auto minmax(0,1.6fr);gap:10px;align-items:baseline;padding:6px 2px;border-bottom:1px solid var(--grid);font-size:13px}}
 .prow .pn{{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}} .prow .pt{{color:{GOOD};font-weight:600;font-variant-numeric:tabular-nums}}
 .prow .pr{{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-@media (prefers-reduced-motion:reduce){{.pend-card .anim{{display:none}}}}
 details{{margin:4px 0}} summary{{cursor:pointer;font-size:14px;color:var(--ink2);padding:6px 0}}
 table{{border-collapse:collapse;font-size:12px;width:100%;margin:6px 0 10px;font-variant-numeric:tabular-nums}}
 td,th{{border-bottom:1px solid var(--grid);padding:4px 6px;text-align:left}}
