@@ -27,11 +27,24 @@ powershell.exe -NoProfile -Command "ssh YOURNAME@fir.alliancecan.ca /project/def
 
 Double-click it, approve the Duo push, and the dashboard opens in the browser (~20 s).
 
-**Web link (any computer, slower):** open <https://fir.gaig.ca>, sign in with your Fir account + Duo, start a
-small server (1 CPU, 1 h), wait until JupyterLab shows the kernel as idle, then click **Run all**. The dashboard
-appears in ~20 s. (fir.gaig.ca just forwards to the notebook on Fir JupyterHub:
-<https://jupyterhub.fir.alliancecan.ca/hub/user-redirect/lab/tree/projects/def-kanj241/hvt632/fir_interface/jupyter/Fir_dashboard.ipynb>.)
-(If the server starts on a compute node, /nearline quotas are not shown: /nearline is mounted on login nodes only.)
+**Web link (any computer):** open <https://fir.gaig.ca> and pick one of two buttons. Both sign in with your Fir
+account + Duo and start a small JupyterHub session (1 core, 2 GB, 1 h, `def-kanj241_cpu`; no Server Options form).
+The session ends by itself; if one is already running it is reused.
+
+1. **Open dashboard** (no setup): the notebook opens; when the kernel shows idle, click **Run all**. The dashboard
+   appears in ~20 s.
+2. **Open dashboard directly** (one-time setup): the live dashboard opens by itself, no notebook. Setup, on Fir:
+
+   ```bash
+   /project/def-kanj241/hvt632/fir_interface/bin/firdash-jupyter-setup
+   ```
+
+   then stop any running JupyterHub server once (File → Hub Control Panel → Stop My Server). It adds a "Fir dashboard"
+   launcher to your own sessions, keeps the Alliance launchers, never overwrites a `~/.jupyter/jupyter_server_config.py`
+   it did not write, and is undone with `--remove`. Without it this button ends in "404 Not Found".
+
+fir.gaig.ca is a static page on the gaig VM (nginx, `/var/www/fir-gaig`); it holds no data.
+(JupyterHub sessions run on compute nodes, so /nearline quotas are not shown: /nearline is mounted on login nodes only.)
 
 **Windows double-click:** get `windows/Fir-dashboard.cmd`, put it on the desktop and double-click it. It asks for your Fir
 username once, then each run is one Duo push and the dashboard opens in the browser.

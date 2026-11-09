@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""One-time setup: add a "Fir dashboard" launcher to your Fir JupyterHub sessions (used by fir.gaig.ca).
+
+Writes ~/.jupyter/jupyter_server_config.py. Restart your JupyterHub server afterwards
+(File > Hub Control Panel > Stop My Server). Undo: firdash-jupyter-setup --remove
+"""
+import os
+import sys
+from pathlib import Path
+
+MARKER = "# firdash-jupyter-setup"
+REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+TARGET = Path.home() / ".jupyter" / "jupyter_server_config.py"
+
+CONFIG = f'''{MARKER}: Fir dashboard launcher (fir.gaig.ca). Generated file; undo with
+#   {REPO}/bin/firdash-jupyter-setup --remove
+# Adds a "firdash" entry to Jupyter Server Proxy and keeps every launcher the Alliance defines (their list is
+# re-read from the system config at each start). Served at <your JupyterLab URL>/firdash/ behind the Fir login.
+import json, os, sys
+try:
+    with open(os.path.join(sys.prefix, "etc", "jupyter", "jupyter_server_config.json")) as f:
+        _servers = json.load(f).get("ServerProxy", {{}}).get("servers", {{}})
+    _servers["firdash"] = {{
+        "command": [sys.executable, "-m", "firdash", "--socket", "{{unix_socket}}"],
+        "unix_socket": True,
+        "environment": {{"PYTHONPATH": {REPO!r}}},
+        "timeout": 60,
+        "launcher_entry": {{"enabled": True, "title": "Fir dashboard"}},
+    }}
+    c.ServerProxy.servers = _servers
+except Exception as e:  # never break JupyterLab over the dashboard
+    print("firdash launcher not added:", e, file=sys.stderr)
+'''
+
+
+def ours():
+    return TARGET.exists() and TARGET.read_text(errors="replace").startswith(MARKER)
+
+
+def main():
+    if sys.argv[1:] == ["--remove"]:
+        if ours():
+            TARGET.unlink()
+            print(f"Removed {TARGET}. Restart your JupyterHub server to drop the launcher.")
+        else:
+            print(f"Nothing to remove ({TARGET} is missing or was not written by this script).")
+        return
+    if sys.argv[1:]:
+        sys.exit(__doc__)
+    if TARGET.exists() and not ours():
+        sys.exit(f"{TARGET} already exists and was not written by this script, so it was left untouched.\n"
+                 "Ask the dashboard maintainer to merge the launcher into it.")
+    TARGET.parent.mkdir(parents=True, exist_ok=True)
+    TARGET.write_text(CONFIG)
+    print(f"Done: wrote {TARGET}.\n"
+          "Next: if a JupyterHub server is running, stop it (File > Hub Control Panel > Stop My Server),\n"
+          "then open https://fir.gaig.ca")
+
+
+main()
