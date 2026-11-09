@@ -31,9 +31,7 @@ Double-click it, approve the Duo push, and the dashboard opens in the browser (~
 account + Duo and start a small JupyterHub session (1 core, 2 GB, 1 h, `def-kanj241_cpu`; no Server Options form).
 The session ends by itself; if one is already running it is reused.
 
-1. **Open dashboard** (no setup): the notebook opens; when the kernel shows idle, click **Run all**. The dashboard
-   appears in ~20 s.
-2. **Open dashboard directly** (one-time setup): the live dashboard opens by itself, no notebook. Setup, on Fir:
+1. **Open dashboard directly** (one-time setup): the live dashboard opens by itself, no notebook. Setup, on Fir:
 
    ```bash
    /project/def-kanj241/hvt632/fir_interface/bin/firdash-jupyter-setup
@@ -42,8 +40,10 @@ The session ends by itself; if one is already running it is reused.
    then stop any running JupyterHub server once (File → Hub Control Panel → Stop My Server). It adds a "Fir dashboard"
    launcher to your own sessions, keeps the Alliance launchers, never overwrites a `~/.jupyter/jupyter_server_config.py`
    it did not write, and is undone with `--remove`. Without it this button ends in "404 Not Found".
+2. **Open dashboard** (no setup): the notebook opens; when the kernel shows idle, click **Run all**. The dashboard
+   appears in ~20 s.
 
-Short links: <https://fir.gaig.ca/open> (option 1) and <https://fir.gaig.ca/direct> (option 2). After the click the
+Short links: <https://fir.gaig.ca/direct> (option 1) and <https://fir.gaig.ca/open> (option 2). After the click the
 address bar shows jupyterhub.fir.alliancecan.ca: the dashboard runs there, and Fir JupyterHub cannot be embedded in
 or proxied through another site. fir.gaig.ca is a static page on the gaig VM (nginx, `/var/www/fir-gaig`; short links
 are 302 redirects in `/etc/nginx/sites-available/fir-redirect`); it holds no data.
