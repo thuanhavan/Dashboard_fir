@@ -43,7 +43,10 @@ The session ends by itself; if one is already running it is reused.
    launcher to your own sessions, keeps the Alliance launchers, never overwrites a `~/.jupyter/jupyter_server_config.py`
    it did not write, and is undone with `--remove`. Without it this button ends in "404 Not Found".
 
-fir.gaig.ca is a static page on the gaig VM (nginx, `/var/www/fir-gaig`); it holds no data.
+Short links: <https://fir.gaig.ca/open> (option 1) and <https://fir.gaig.ca/direct> (option 2). After the click the
+address bar shows jupyterhub.fir.alliancecan.ca: the dashboard runs there, and Fir JupyterHub cannot be embedded in
+or proxied through another site. fir.gaig.ca is a static page on the gaig VM (nginx, `/var/www/fir-gaig`; short links
+are 302 redirects in `/etc/nginx/sites-available/fir-redirect`); it holds no data.
 (JupyterHub sessions run on compute nodes, so /nearline quotas are not shown: /nearline is mounted on login nodes only.)
 
 **Windows double-click:** get `windows/Fir-dashboard.cmd`, put it on the desktop and double-click it. It asks for your Fir
