@@ -27,9 +27,10 @@ powershell.exe -NoProfile -Command "ssh YOURNAME@fir.alliancecan.ca /project/def
 
 Double-click it, approve the Duo push, and the dashboard opens in the browser (~20 s).
 
-**Web link (any computer, slower):** open
-<https://jupyterhub.fir.alliancecan.ca/hub/user-redirect/lab/tree/projects/def-kanj241/hvt632/fir_interface/jupyter/Fir_dashboard.ipynb>,
-sign in with your Fir account + Duo, start a small server (1 CPU, 1 h), then click **Run all**.
+**Web link (any computer, slower):** open <https://fir.gaig.ca>, sign in with your Fir account + Duo, start a
+small server (1 CPU, 1 h), wait until JupyterLab shows the kernel as idle, then click **Run all**. The dashboard
+appears in ~20 s. (fir.gaig.ca just forwards to the notebook on Fir JupyterHub:
+<https://jupyterhub.fir.alliancecan.ca/hub/user-redirect/lab/tree/projects/def-kanj241/hvt632/fir_interface/jupyter/Fir_dashboard.ipynb>.)
 (If the server starts on a compute node, /nearline quotas are not shown: /nearline is mounted on login nodes only.)
 
 **Windows double-click:** get `windows/Fir-dashboard.cmd`, put it on the desktop and double-click it. It asks for your Fir
