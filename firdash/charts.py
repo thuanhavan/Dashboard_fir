@@ -11,10 +11,14 @@ def esc(s):
 
 
 def size(b):
+    if b >= 2**50:
+        return f"{b / 2**50:.1f} PiB"
     return f"{b / 2**40:.1f} TiB" if b >= 2**40 else f"{b / 2**30:.0f} GiB"
 
 
 def count(n):
+    if n >= 1e9:
+        return f"{n / 1e9:.2f}B"
     return f"{n / 1e6:.2f}M" if n >= 1e6 else f"{n / 1e3:.0f}K" if n >= 1e4 else f"{n:,.0f}"
 
 

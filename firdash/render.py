@@ -256,9 +256,13 @@ def trend_card(hist, quotas):
 
 
 def fs_card(fsys):
+    shared = [r["label"] for r in fsys if " + " in r["label"]]
+    fsys = [dict(r, label="shared disk" if " + " in r["label"] else r["label"]) for r in fsys]
     files = [dict(r, used=r["files"], quota=r["fquota"]) for r in fsys]
+    note = (f'<p class="muted" style="margin:4px 0 0;font-size:12px">shared disk = {esc(shared[0].replace(" + ", ", "))}: '
+            'one filesystem for every Fir user</p>') if shared else ""
     return card("Whole filesystems · all users (not your quota)",
-                '<div class="flab">space</div>' + quota_chart(fsys, "used", "quota", size)
+                note + '<div class="flab">space</div>' + quota_chart(fsys, "used", "quota", size)
                 + '<div class="flab">files (inodes)</div>' + quota_chart(files, "used", "quota", count))
 
 
