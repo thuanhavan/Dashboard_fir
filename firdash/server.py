@@ -18,14 +18,14 @@ PASSWORD_FILE = Path.home() / ".config" / "firdash" / "password"
 SOCKET_PATH = Path.home() / ".firdash" / "dash.sock"
 _cache = {}
 
-LOGIN = """<!doctype html><html><head><meta charset="utf-8"><title>Fir dashboard</title>
+LOGIN = """<!doctype html><html><head><meta charset="utf-8"><title>DRAC dashboard</title>
 <style>body{{margin:0;height:100vh;display:grid;place-items:center;background:#0b1424;color:#f0efec;
 font-family:system-ui,"Segoe UI",sans-serif}} form{{background:#13213a;padding:28px 32px;border-radius:10px;
 border:1px solid rgba(255,255,255,.1);display:flex;flex-direction:column;gap:12px;width:300px}}
 input,button{{padding:9px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.15);font-size:14px}}
 input{{background:#0b1424;color:#f0efec}} button{{background:#3987e5;color:#fff;border:0;cursor:pointer}}
 .err{{color:#e66767;font-size:13px}}</style></head><body>
-<form method="post" action="/login"><b>▲ Fir dashboard</b>{err}
+<form method="post" action="/login"><b>▲ DRAC dashboard</b>{err}
 <input type="password" name="password" placeholder="Password" autofocus required>
 <button>Sign in</button></form></body></html>"""
 
