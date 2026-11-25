@@ -1,3 +1,4 @@
+import concurrent.futures
 import datetime as dt
 import json
 import os
@@ -14,6 +15,17 @@ def run(cmd, timeout=90):
         return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout).stdout
     except subprocess.TimeoutExpired:
         return ""
+
+
+def run_checked(cmd, timeout=90):
+    """Like run(), but a non-zero exit or a timeout raises RuntimeError (so a failure is never mistaken for empty data)."""
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"timed out after {timeout}s: {cmd.split()[0]}") from None
+    if r.returncode != 0:
+        raise RuntimeError(f"{cmd.split()[0]} failed ({r.returncode}): {r.stderr.strip()[:120]}")
+    return r.stdout
 
 
 def to_bytes(s):
@@ -220,7 +232,7 @@ def arrays(days=3):
     out = run(f"sacct -u {USER} -S now-{days}days -X -n -P -o JobID,JobName,State,End", 120)
     arr = {}
     for line in out.splitlines():
-        p = line.split("|")
+        p = [f.strip() for f in line.split("|")]
         if len(p) < 4 or "_" not in p[0]:
             continue
         jid, task = p[0].split("_", 1)
@@ -264,7 +276,7 @@ def efficiency(days):
     out = run(f"sacct -u {USER} -S now-{days}days -n -P -o JobID,JobName,State,Elapsed,TotalCPU,AllocCPUS,ReqMem,MaxRSS,Account", 180)
     jobs = {}
     for line in out.splitlines():
-        p = line.split("|")
+        p = [f.strip() for f in line.split("|")]
         if len(p) < 9:
             continue
         jid, step = p[0].split(".", 1) if "." in p[0] else (p[0], None)
@@ -324,7 +336,7 @@ def parse_sreport(text, tres):
     account totals and are skipped. With tres (e.g. 'gres/gpu') the row is Account|Login|TRESName|Used."""
     out = {}
     for line in text.splitlines():
-        p = line.split("|")
+        p = [f.strip() for f in line.split("|")]
         if tres:
             if len(p) < 4 or not p[1] or p[2] != tres:
                 continue
@@ -342,23 +354,32 @@ def parse_sreport(text, tres):
 
 def usage_by_month(accounts, months=3, today=None):
     """{'YYYY-MM': {user: {'cpu': core-hours, 'gpu': gpu-hours}}} for the last `months` calendar months.
-    One sreport call per month for the *_cpu accounts and one with --tres=gres/gpu for the *_gpu accounts."""
+    One sreport call per month for the *_cpu accounts and one with --tres=gres/gpu for the *_gpu accounts,
+    run in parallel. Only accounts ending _cpu / _gpu are used (others are ignored). "cpu" counts the
+    core-hours charged to the _cpu accounts only (cores used by GPU jobs are charged to the _gpu accounts
+    and are not included). A failed sreport raises RuntimeError."""
     cpu = sorted(a for a in set(accounts) if a.endswith("_cpu"))
     gpu = sorted(a for a in set(accounts) if a.endswith("_gpu"))
     today = today or dt.date.today()
     bounds = _month_starts(months, today)
     out = {}
+    jobs = []
     for s, e in zip(bounds, bounds[1:]):
         end = "now" if e > today else str(e)
-        m = out.setdefault(s.strftime("%Y-%m"), {})
+        key = s.strftime("%Y-%m")
+        out[key] = {}
+        base = "sreport -t hours -P -n cluster AccountUtilizationByUser"
         if cpu:
-            text = run(f"sreport -t hours -P -n cluster AccountUtilizationByUser accounts={','.join(cpu)} "
-                       f"start={s} end={end} format=Account,Login,Used", 60)
-            for u, h in parse_sreport(text, None).items():
-                m.setdefault(u, {"cpu": 0.0, "gpu": 0.0})["cpu"] += h
+            jobs.append((key, "cpu", None, f"{base} accounts={','.join(cpu)} start={s} end={end} "
+                                           "format=Account,Login,Used"))
         if gpu:
-            text = run(f"sreport -t hours -P -n cluster AccountUtilizationByUser accounts={','.join(gpu)} "
-                       f"start={s} end={end} --tres=gres/gpu format=Account,Login,TRESName,Used", 60)
-            for u, h in parse_sreport(text, "gres/gpu").items():
-                m.setdefault(u, {"cpu": 0.0, "gpu": 0.0})["gpu"] += h
+            jobs.append((key, "gpu", "gres/gpu", f"{base} accounts={','.join(gpu)} start={s} end={end} "
+                                                 "--tres=gres/gpu format=Account,Login,TRESName,Used"))
+    if not jobs:
+        return out
+    with concurrent.futures.ThreadPoolExecutor(6) as ex:
+        futures = [ex.submit(run_checked, cmd, 30) for _, _, _, cmd in jobs]
+        for (key, kind, tres, _), f in zip(jobs, futures):
+            for u, h in parse_sreport(f.result(), tres).items():
+                out[key].setdefault(u, {"cpu": 0.0, "gpu": 0.0})[kind] += h
     return out
