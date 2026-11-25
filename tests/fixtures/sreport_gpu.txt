@@ -1,0 +1,5 @@
+def-acilab_gpu||gres/gpu|241
+def-acilab_gpu|yaw|gres/gpu|241
+def-kanj241_gpu||gres/gpu|803
+def-kanj241_gpu|hvt632|gres/gpu|24
+def-kanj241_gpu|nazifa|gres/gpu|419

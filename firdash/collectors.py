@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import os
 import re
@@ -307,3 +308,57 @@ def pending_lab(accounts):
         p.append(_ntasks(task.strip("[]")) if task.startswith("[") else 1)
         rows.append(p)
     return rows
+
+
+def _month_starts(n, today=None):
+    """First day of the last n calendar months, oldest first, then the first day of next month (end bound)."""
+    today = today or dt.date.today()
+    starts = [today.replace(day=1)]
+    for _ in range(n - 1):
+        starts.insert(0, (starts[0] - dt.timedelta(days=1)).replace(day=1))
+    return starts + [(starts[-1] + dt.timedelta(days=32)).replace(day=1)]
+
+
+def parse_sreport(text, tres):
+    """{user: hours} from `sreport -P -n cluster AccountUtilizationByUser`. Rows with an empty login are
+    account totals and are skipped. With tres (e.g. 'gres/gpu') the row is Account|Login|TRESName|Used."""
+    out = {}
+    for line in text.splitlines():
+        p = line.split("|")
+        if tres:
+            if len(p) < 4 or not p[1] or p[2] != tres:
+                continue
+            user, used = p[1], p[3]
+        else:
+            if len(p) < 3 or not p[1]:
+                continue
+            user, used = p[1], p[2]
+        try:
+            out[user] = out.get(user, 0.0) + float(used)
+        except ValueError:
+            continue
+    return out
+
+
+def usage_by_month(accounts, months=3, today=None):
+    """{'YYYY-MM': {user: {'cpu': core-hours, 'gpu': gpu-hours}}} for the last `months` calendar months.
+    One sreport call per month for the *_cpu accounts and one with --tres=gres/gpu for the *_gpu accounts."""
+    cpu = sorted(a for a in set(accounts) if a.endswith("_cpu"))
+    gpu = sorted(a for a in set(accounts) if a.endswith("_gpu"))
+    today = today or dt.date.today()
+    bounds = _month_starts(months, today)
+    out = {}
+    for s, e in zip(bounds, bounds[1:]):
+        end = "now" if e > today else str(e)
+        m = out.setdefault(s.strftime("%Y-%m"), {})
+        if cpu:
+            text = run(f"sreport -t hours -P -n cluster AccountUtilizationByUser accounts={','.join(cpu)} "
+                       f"start={s} end={end} format=Account,Login,Used", 60)
+            for u, h in parse_sreport(text, None).items():
+                m.setdefault(u, {"cpu": 0.0, "gpu": 0.0})["cpu"] += h
+        if gpu:
+            text = run(f"sreport -t hours -P -n cluster AccountUtilizationByUser accounts={','.join(gpu)} "
+                       f"start={s} end={end} --tres=gres/gpu format=Account,Login,TRESName,Used", 60)
+            for u, h in parse_sreport(text, "gres/gpu").items():
+                m.setdefault(u, {"cpu": 0.0, "gpu": 0.0})["gpu"] += h
+    return out
