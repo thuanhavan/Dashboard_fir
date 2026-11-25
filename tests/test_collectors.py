@@ -140,12 +140,14 @@ class ScanTests(unittest.TestCase):
                 if k in cmd:
                     return v
             return ""
+        listing["'/p/g/loop'"] = "/p/g/loop/A/B/one.bin\n"     # a symlink back to the tree must not be followed
         sizes = {"/p/g/A/B/one.bin": 10, "/p/g/A/B/deep/two.bin": 20, "/p/g/A/three.bin": 5, "/p/g/top.txt": 1}
         st = lambda path: mock.Mock(st_size=sizes[path])
         with mock.patch.object(c, "run", fake_run), mock.patch.object(c, "USER", "me"), \
                 mock.patch.object(c, "MYFILES", tmp + "/myfiles.json"), \
                 mock.patch.object(c.os.path, "realpath", lambda x: "/p/g"), mock.patch.object(c.os.path, "isdir", lambda x: True), \
-                mock.patch.object(c.os, "listdir", lambda x: ["Z", "A"]), mock.patch.object(c.os, "lstat", st):
+                mock.patch.object(c.os, "listdir", lambda x: ["Z", "A", "loop"]), mock.patch.object(c.os, "lstat", st), \
+                mock.patch.object(c.os.path, "islink", lambda x: x.endswith("/loop")):
             got = c.scan_my_files(["g"])
         self.assertEqual(got["total"], 4)
         self.assertEqual(got["rows"], [["g/A/B", 2, 30], ["g/A", 1, 5], ["g", 1, 1]])
@@ -162,6 +164,7 @@ class ScanTests(unittest.TestCase):
         with mock.patch.object(c, "run", lambda cmd, timeout=90: many if "'/p/g/A'" in cmd else ""), \
                 mock.patch.object(c, "SIZE_LIMIT", 3), mock.patch.object(c, "MYFILES", tmp + "/m.json"), \
                 mock.patch.object(c.os.path, "realpath", lambda x: "/p/g"), mock.patch.object(c.os.path, "isdir", lambda x: True), \
-                mock.patch.object(c.os, "listdir", lambda x: ["A"]), mock.patch.object(c.os, "lstat", lambda p: mock.Mock(st_size=1)):
+                mock.patch.object(c.os, "listdir", lambda x: ["A"]), mock.patch.object(c.os, "lstat", lambda p: mock.Mock(st_size=1)), \
+                mock.patch.object(c.os.path, "islink", lambda x: False):
             got = c.scan_my_files(["g"])
         self.assertEqual(got["rows"], [["g/A", 5, None]])

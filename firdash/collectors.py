@@ -351,7 +351,9 @@ def scan_my_files(groups, workers=6):
                 continue
             jobs.append((g, base, None))
             try:
-                jobs += [(g, base, t) for t in sorted(os.listdir(base)) if os.path.isdir(os.path.join(base, t))]
+                # symlinks are skipped: /project/<group>/<group> -> the group dir itself would double every count
+                jobs += [(g, base, t) for t in sorted(os.listdir(base))
+                         if os.path.isdir(os.path.join(base, t)) and not os.path.islink(os.path.join(base, t))]
             except OSError:
                 continue
         agg, total, oversize = {}, 0, False
