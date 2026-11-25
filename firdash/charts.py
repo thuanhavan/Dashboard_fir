@@ -77,7 +77,7 @@ def line(xlabels, series, width=620, height=260):
     """series: [(name, color, [values])] sharing xlabels."""
     left, right, top, bottom = 40, 90, 12, 26
     pw, ph = width - left - right, height - top - bottom
-    ymax = max([max(v) for _, _, v in series if v] + [1])
+    ymax = int(-(-max([max(v) for _, _, v in series if v] + [1]) // 1))   # ceil: values may be floats
     step = max(1, round(ymax / 4))
     ymax = step * 4 if step * 4 >= ymax else step * 5
     n = max(len(xlabels) - 1, 1)
@@ -119,7 +119,7 @@ def legend(items, tape=False):
     return f'<div class="legend">{"".join(out)}</div>'
 
 
-def columns(xlabels, series, width=620, height=260):
+def columns(xlabels, series, width=620, height=260, max_bw=28):
     """Stacked columns. series: [(name, color, [values])] sharing xlabels."""
     left, right, top, bottom = 40, 10, 12, 26
     pw, ph = width - left - right, height - top - bottom
@@ -127,7 +127,7 @@ def columns(xlabels, series, width=620, height=260):
     step = max(1, int(nice_step(max(totals + [1]))))
     ymax = step * -(-max(totals + [1]) // step)
     slot = pw / max(len(xlabels), 1)
-    bw = max(min(slot - 4, 28), 2)
+    bw = max(min(slot - 4, max_bw), 2)
     sy = lambda v: top + ph * (1 - v / ymax)
     out = [f'<svg viewBox="0 0 {width} {height}" width="100%" role="img">']
     for t in range(0, ymax + 1, step):
