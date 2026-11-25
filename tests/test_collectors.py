@@ -128,22 +128,40 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class FoldersTests(unittest.TestCase):
-    def test_my_folders_lists_owned_dirs_once_with_sizes(self):
-        listing = "/p/g/a\t2026-11-01\n/p/g/a/sub\t2026-11-02\n/p/g/b\t2026-10-01\n"
+class ScanTests(unittest.TestCase):
+    def test_scan_my_files_groups_by_two_levels_and_writes_cache(self):
+        import tempfile
+        tmp = tempfile.mkdtemp()
+        listing = {"'/p/g' --maxdepth 1": "/p/g/top.txt\n",
+                   "'/p/g/A'": "/p/g/A/B/one.bin\n/p/g/A/B/deep/two.bin\n/p/g/A/three.bin\n", "'/p/g/Z'": ""}
 
         def fake_run(cmd, timeout=90):
-            if cmd.startswith("find "):
-                return listing
-            if "'/p/g/a'" in cmd:
-                return "1073741824\t/p/g/a\n"
-            return ""                                        # du for /p/g/b timed out
+            for k, v in listing.items():
+                if k in cmd:
+                    return v
+            return ""
+        sizes = {"/p/g/A/B/one.bin": 10, "/p/g/A/B/deep/two.bin": 20, "/p/g/A/three.bin": 5, "/p/g/top.txt": 1}
+        st = lambda path: mock.Mock(st_size=sizes[path])
         with mock.patch.object(c, "run", fake_run), mock.patch.object(c, "USER", "me"), \
-                mock.patch.object(c.os.path, "realpath", lambda x: "/p/g"), mock.patch.object(c.os.path, "isdir", lambda x: True):
-            got = c.my_folders(["g"])
-        self.assertEqual(got, [("g/a", 1073741824, "2026-11-01"), ("g/b", None, "2026-10-01")])
+                mock.patch.object(c, "MYFILES", tmp + "/myfiles.json"), \
+                mock.patch.object(c.os.path, "realpath", lambda x: "/p/g"), mock.patch.object(c.os.path, "isdir", lambda x: True), \
+                mock.patch.object(c.os, "listdir", lambda x: ["Z", "A"]), mock.patch.object(c.os, "lstat", st):
+            got = c.scan_my_files(["g"])
+        self.assertEqual(got["total"], 4)
+        self.assertEqual(got["rows"], [["g/A/B", 2, 30], ["g/A", 1, 5], ["g", 1, 1]])
+        self.assertFalse(c.SCAN.is_set())
+        with mock.patch.object(c, "MYFILES", tmp + "/myfiles.json"):
+            self.assertEqual(c.my_files_cached()["rows"], got["rows"])
+        with mock.patch.object(c, "MYFILES", tmp + "/missing.json"):
+            self.assertIsNone(c.my_files_cached())
 
-    def test_my_folders_without_project_dir(self):
-        with mock.patch.object(c.os.path, "isdir", lambda x: False):
-            self.assertEqual(c.my_folders(["g"]), [])
-
+    def test_scan_counts_only_above_size_limit(self):
+        import tempfile
+        tmp = tempfile.mkdtemp()
+        many = "".join(f"/p/g/A/f{i}\n" for i in range(5))
+        with mock.patch.object(c, "run", lambda cmd, timeout=90: many if "'/p/g/A'" in cmd else ""), \
+                mock.patch.object(c, "SIZE_LIMIT", 3), mock.patch.object(c, "MYFILES", tmp + "/m.json"), \
+                mock.patch.object(c.os.path, "realpath", lambda x: "/p/g"), mock.patch.object(c.os.path, "isdir", lambda x: True), \
+                mock.patch.object(c.os, "listdir", lambda x: ["A"]), mock.patch.object(c.os, "lstat", lambda p: mock.Mock(st_size=1)):
+            got = c.scan_my_files(["g"])
+        self.assertEqual(got["rows"], [["g/A", 5, None]])

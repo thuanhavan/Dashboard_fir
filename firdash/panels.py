@@ -3,6 +3,7 @@ import datetime as dt
 from concurrent.futures import ThreadPoolExecutor
 
 from . import collectors as c
+from .collectors import SIZE_LIMIT
 from .charts import CRIT, GOOD, OTHER, SERIES, bars, columns, count, esc, legend, line, nice_step, size, status_fill
 
 BAD_STATES = ("FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "CANCELLED")
@@ -362,12 +363,28 @@ def efficiency_card(eff, days):
     return card(f"My job efficiency · last {days} d · {len(eff)} jobs", body), cpu_eff, mem_eff, idle_h
 
 
-def folders_table(rows, timeout=30):
-    """rows = collectors.my_folders(). A None size means du did not finish within the time budget."""
-    if not rows:
-        return '<p class="muted">No folders of yours in the top two levels of /project.</p>'
-    body = [[label, size(n) if n is not None else f"not measured (> {timeout} s)", mtime] for label, n, mtime in rows]
-    return (table(["Folder", "Size of everything inside", "Modified"], body)
-            + '<p class="muted">Folders you own (created by you) in the top two levels of /project. Shared folders someone '
-              'else created are not listed even if you can write to them. Rescanned once an hour.</p>')
+def section(title):
+    """Full-width heading that groups the cards below it."""
+    return f'<h2 class="sec">{esc(title)}</h2>'
+
+
+def my_files_card(data, scanning, static):
+    """Files owned by the user anywhere under /project, per folder, from the last on-demand scan."""
+    if scanning:
+        body = '<p class="muted">Scanning /project for your files. This takes a few minutes; reload the page later.</p>'
+    elif not data:
+        body = ('<p class="muted">Not scanned yet. The scan walks the whole group tree in the background (a few minutes) '
+                'and the result is kept until the next scan.</p>')
+    else:
+        rows = [[k, f"{n:,}", size(b) if b is not None else "—"] for k, n, b in data["rows"]]
+        note = (f'Files owned by you anywhere under /project, grouped by folder (two levels). Scanned {data["time"]} · '
+                f'{data["total"]:,} files')
+        if data["rows"] and data["rows"][0][2] is None:
+            note += f" · sizes not measured (more than {SIZE_LIMIT:,} files)"
+        body = (table(["Folder", "My files", "Size"], rows) if rows else '<p class="muted">No files of yours under /project.</p>') \
+            + f'<p class="muted">{esc(note)}.</p>'
+    if not static and not scanning:
+        body += ('<form method="post" action="scan" class="scan"><button type="submit">Scan now</button> '
+                 '<span class="muted">3–15 min in the background; this card updates when it is done.</span></form>')
+    return card("My files in /project", body)
 

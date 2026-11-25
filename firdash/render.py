@@ -26,8 +26,9 @@ def normalise(params):
 
 def build(params):
     page, days = normalise(params)
-    kpis, grid, alerts, colors = (me.build_me if page == "me" else lab.build_lab)(days)
-    return shell(page, days, kpis, grid, alerts, colors, bool(params.get("static")))
+    static = bool(params.get("static"))
+    kpis, grid, alerts, colors = me.build_me(days, static) if page == "me" else lab.build_lab(days)
+    return shell(page, days, kpis, grid, alerts, colors, static)
 
 
 def logo():
@@ -132,6 +133,8 @@ svg .hover{{fill:transparent}} svg .hover:hover{{fill:rgba(255,255,255,.05)}}
 .legend{{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink2);margin-top:6px}}
 .legend i{{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}}
 .legend .hatch{{background:repeating-linear-gradient(45deg,var(--muted) 0 2px,transparent 2px 5px);border:1px solid var(--muted)}}
+.sec{{grid-column:1/-1;margin:10px 0 -6px;font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}}
+.scan{{margin-top:10px}} .scan button{{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:7px 14px;font-size:13px;cursor:pointer}}
 .zoomable{{cursor:zoom-in}} .zoomable table,.zoomable a{{cursor:auto}}
 #zoom{{position:fixed;inset:0;z-index:50;background:rgba(5,10,20,.72);display:flex;align-items:center;justify-content:center;cursor:zoom-out;padding:20px}}
 #zoom>section{{width:min(1100px,96vw);max-height:92vh;overflow:auto;box-shadow:0 12px 48px rgba(0,0,0,.6);cursor:auto}}

@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 import time
 
 USER = os.environ.get("USER", "")
@@ -322,32 +323,72 @@ def queue_wait(accounts, days):
     return parse_queue_wait(run_checked(f"SLURM_TIME_FORMAT=standard sacct -a -A {','.join(sorted(set(accounts)))} -S now-{days}days -X -n -P -o Submit,Start,State", 180))
 
 
-def my_folders(groups, depth=2, timeout=30):
-    """[(label, bytes | None, 'YYYY-MM-DD')] for the directories the user OWNS (created, not just shared with them)
-    in the top `depth` levels of /project/<group>. A folder inside an owned folder is not listed again. Size is
-    `du -s` of everything inside (None when du did not finish within `timeout` seconds). Sorted by size, biggest first."""
-    found = []
-    for g in groups:
-        base = os.path.realpath(f"/project/{g}")
-        if not os.path.isdir(base):
-            continue
-        out = run(f"find {base} -mindepth 1 -maxdepth {depth} -type d -user {USER} -printf '%p\\t%TY-%Tm-%Td\\n' 2>/dev/null", 60)
-        kept = []
-        for line in sorted(out.splitlines()):
-            path, _, mtime = line.partition("\t")
-            if not path or any(path.startswith(k + "/") for k in kept):
+MYFILES = os.path.join(os.path.expanduser("~"), ".firdash", "myfiles.json")
+SIZE_LIMIT = 100_000      # stat sizes only up to this many files of mine; above it the scan reports counts only
+SCAN = threading.Event()  # set while scan_my_files() is running
+
+
+def my_files_cached():
+    """Result of the last scan_my_files() run ({"time", "total", "rows": [[folder, files, bytes|None]]}), or None."""
+    try:
+        with open(MYFILES) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def scan_my_files(groups, workers=6):
+    """Walk /project/<group> for files OWNED by the user, wherever they are, with one `lfs find` per top-level
+    folder in parallel, and save counts (and sizes, up to SIZE_LIMIT files) per second-level folder to MYFILES.
+    Takes minutes on a big tree and loads the metadata servers: run it in a background thread on request,
+    never per page view."""
+    SCAN.set()
+    try:
+        jobs = []
+        for g in groups:
+            base = os.path.realpath(f"/project/{g}")
+            if not os.path.isdir(base):
                 continue
-            kept.append(path)
-            found.append((g, path, base, mtime))
-    if not found:
-        return []
-    with concurrent.futures.ThreadPoolExecutor(4) as ex:
-        sizes = list(ex.map(lambda f: _du(f[1], timeout), found))
-    rows = [(f"{g}/{path[len(base) + 1:]}", n, mtime) for (g, path, base, mtime), n in zip(found, sizes)]
-    return sorted(rows, key=lambda r: (r[1] is None, -(r[1] or 0), r[0]))
+            jobs.append((g, base, None))
+            try:
+                jobs += [(g, base, t) for t in sorted(os.listdir(base)) if os.path.isdir(os.path.join(base, t))]
+            except OSError:
+                continue
+        agg, total, oversize = {}, 0, False
+        with concurrent.futures.ThreadPoolExecutor(max(workers, 1)) as ex:
+            for g, base, paths in ex.map(lambda j: (j[0], j[1], _find_mine(j[1], j[2])), jobs):
+                for path in paths:
+                    parts = path[len(base) + 1:].split("/")
+                    key = "/".join([g] + parts[:-1][:2])
+                    d = agg.setdefault(key, {"files": 0, "bytes": 0})
+                    d["files"] += 1
+                    total += 1
+                    if total > SIZE_LIMIT:
+                        oversize = True
+                    elif not oversize:
+                        d["bytes"] += _size(path)
+        rows = [[k, v["files"], None if oversize else v["bytes"]] for k, v in agg.items()]
+        data = {"time": time.strftime("%Y-%m-%d %H:%M"), "total": total,
+                "rows": sorted(rows, key=lambda r: (-(r[2] or 0), -r[1], r[0]))}
+        os.makedirs(os.path.dirname(MYFILES), exist_ok=True)
+        tmp = MYFILES + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp, MYFILES)
+        return data
+    finally:
+        SCAN.clear()
 
 
-def _du(path, timeout):
-    out = run(f"du -s -B1 '{path}' 2>/dev/null", timeout)
-    return int(out.split()[0]) if out.strip() and out.split()[0].isdigit() else None
+def _find_mine(base, top):
+    """Paths of the user's files under base/top (top=None: files directly in base)."""
+    where = f"'{base}' --maxdepth 1" if top is None else f"'{base}/{top}'"
+    return [l for l in run(f"lfs find {where} -type f -user {USER} 2>/dev/null", 3600).splitlines() if l]
+
+
+def _size(path):
+    try:
+        return os.lstat(path).st_size
+    except OSError:
+        return 0
 

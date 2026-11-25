@@ -1,5 +1,6 @@
 import datetime as dt
 import re
+import threading
 import time
 import unittest
 from unittest import mock
@@ -70,6 +71,8 @@ class LabPageTests(unittest.TestCase):
         self.assertIn("2.0 h", kpis)                                  # median of [1800 s, 7200 s] picks index 1 -> 7200 s
         self.assertEqual(alerts, [])
         self.assertIn("otheruser", colors)
+        for sec in ("Storage", "Compute", "Jobs"):
+            self.assertIn(f'<h2 class="sec">{sec}</h2>', grid)
 
     def test_lab_survives_a_failing_collector(self):
         kpis, grid, alerts, colors = self.run_lab(usage_by_month=boom(RuntimeError("sreport down")))
@@ -117,8 +120,9 @@ EFF = [{"id": "2", "name": "j", "state": "TIMEOUT", "elapsed": 3600.0, "cpu": 18
 def fake_me(**over):
     cache._ttl.clear()
     pats = {"storage": lambda: ST, "jobs": lambda: JB, "recent": lambda d, a=None: MYHIST,
-            "pending_start": lambda: PEND, "efficiency": lambda d: EFF, "groups": lambda: ["def-a"],
-            "my_folders": lambda groups: [("def-a/mine", 5 * 2**30, "2026-11-01"), ("def-a/big", None, "2026-10-01")]}
+            "pending_start": lambda: PEND, "efficiency": lambda d: EFF,
+            "my_files_cached": lambda: {"time": "2026-11-25 15:00", "total": 90,
+                                        "rows": [["def-a/A01/C01", 87, 5 * 2**30], ["def-a", 3, 1024]]}}
     pats.update(over)
     ms = [mock.patch.object(cache, "storage", pats.pop("storage")), mock.patch.object(c, "USER", "me")]
     ms += [mock.patch.object(c, k, v) for k, v in pats.items()]
@@ -142,10 +146,12 @@ class MePageTests(unittest.TestCase):
         self.assertEqual(kpis.count('class="kpi"'), 5)
         self.assertIn("files unused for 60 days are purged", kpis)
         self.assertIn("1 · 1", kpis)                                   # running · pending
-        self.assertIn("My folders in /project", grid)
-        self.assertIn("def-a/mine", grid)
+        self.assertIn("My files in /project", grid)
+        self.assertIn("def-a/A01/C01", grid)
         self.assertIn("5 GiB", grid)
-        self.assertIn("not measured", grid)
+        self.assertIn("Scan now", grid)
+        self.assertIn('<h2 class="sec">Storage</h2>', grid)
+        self.assertIn('<h2 class="sec">Jobs</h2>', grid)
         for title in ("My /home and /scratch", "My share of group storage", "My jobs finished per day · last 7 d",
                       "My job efficiency · last 7 d · 1 jobs", "Pending jobs (1)", "Problem jobs, last 7 d (1)"):
             self.assertIn(title, grid, title)
@@ -224,6 +230,27 @@ class ShellTests(unittest.TestCase):
         self.assertIn("static snapshot", html)
         self.assertNotIn("<select", html)
         self.assertIn("last 7 d", html)
+        self.assertNotIn("Scan now", html)                         # no button in a static snapshot
+
+    def test_scan_states_and_start_scan(self):
+        from firdash import server
+        self.addCleanup(cache._ttl.clear)
+        self.addCleanup(server._cache.clear)
+        html = self._with(fake_me(my_files_cached=lambda: None), lambda: render.build({"page": "me"}))
+        self.assertIn("Not scanned yet", html)
+        c.SCAN.set()
+        try:
+            html = self._with(fake_me(), lambda: render.build({"page": "me"}))
+        finally:
+            c.SCAN.clear()
+        self.assertIn("Scanning /project", html)
+        self.assertNotIn("Scan now", html)
+        server._cache[("me", 7)] = (time.time(), "old")
+        ran = threading.Event()
+        with mock.patch.object(c, "scan_my_files", lambda groups: ran.set()), mock.patch.object(c, "groups", lambda: ["g"]):
+            self.assertTrue(server.start_scan())
+            self.assertTrue(ran.wait(5))
+        self.assertNotIn(("me", 7), server._cache)
 
     def test_hatch_patterns_are_unique(self):
         html = self._with(fake_lab(), lambda: render.build({}))

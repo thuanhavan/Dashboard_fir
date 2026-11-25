@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
+from . import collectors as c
 from .collectors import USER
 from .render import CACHE_TTL, DEFAULT_DAYS, build, normalise
 
@@ -108,6 +109,26 @@ def _refresh_async(key):
     threading.Thread(target=run, daemon=True).start()
 
 
+def start_scan():
+    """Scan /project for the user's files in a daemon thread (Me page "Scan now"); one scan at a time."""
+    if c.SCAN.is_set():
+        return False
+    _cache.pop(("me", DEFAULT_DAYS["me"]), None)
+    _cache.pop(("me", 30), None)
+
+    def run():
+        try:
+            c.scan_my_files(c.groups())
+        except Exception:  # noqa: BLE001 - the card simply stays at "not scanned"
+            pass
+        finally:
+            _cache.pop(("me", DEFAULT_DAYS["me"]), None)
+            _cache.pop(("me", 30), None)
+
+    threading.Thread(target=run, daemon=True).start()
+    return True
+
+
 def warm():
     """Build both default pages in the background right after start-up, so the first click is instant."""
     for key in (("lab", DEFAULT_DAYS["lab"]), ("me", DEFAULT_DAYS["me"])):
@@ -162,7 +183,15 @@ def main():
             return False
 
         def do_POST(self):
-            if urlsplit(self.path).path != "/login":
+            path = urlsplit(self.path).path
+            if path == "/scan":
+                if not self.authed():
+                    self.send(401, LOGIN.format(err=""))
+                    return
+                start_scan()
+                self.send(303, "", [("Location", "./?page=me")])
+                return
+            if path != "/login":
                 self.send_error(404)
                 return
             n = min(int(self.headers.get("Content-Length") or 0), 4096)
