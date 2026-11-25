@@ -30,6 +30,17 @@ class ChartTests(unittest.TestCase):
         self.assertIn("median: 11.0", html)   # older week waits 8..14 h
         self.assertEqual(html.count("wk to"), 4)  # 2 labels, 2 tooltips
 
+    def test_queue_wait_chart_daily_for_short_windows(self):
+        import datetime as dt
+        today = dt.date.today()
+        waits = [((today - dt.timedelta(days=d)).isoformat(), 3600.0 * (1 + d)) for d in range(0, 7)]
+        html = p.queue_wait_chart(waits, 7)
+        self.assertEqual(html.count("<circle"), 14)                       # 7 daily points per series
+        self.assertNotIn("wk to", html)
+        self.assertIn("median: 1.0", html)                                # today's bucket
+        self.assertIn("median: 7.0", html)                                # 6 days ago
+        self.assertIn("bucketed by start day", html)
+
     def test_queue_wait_chart_empty_week_shows_zero(self):
         import datetime as dt
         today = dt.date.today()

@@ -235,25 +235,26 @@ def usage_month_chart(usage, kind, colors):
 
 
 def queue_wait_chart(waits, days):
-    """Median and 90th-percentile queue wait per whole week, in hours. waits = collectors.queue_wait().
-
-    Percentiles are upper nearest-rank (with 1-2 jobs in a week the median equals the max)."""
+    """Median and 90th-percentile queue wait, in hours, per day (windows under 14 days) or per whole week.
+    waits = collectors.queue_wait(). Percentiles are upper nearest-rank (with 1-2 jobs in a bucket the median equals the max)."""
     if not waits:
         return '<p class="muted">No started jobs in this window.</p>'
     today = dt.date.today()
-    n = max(1, days // 7)
+    span = 1 if days < 14 else 7
+    n = max(1, days // span)
     buckets = [[] for _ in range(n)]
     for d, w in waits:
         age = (today - dt.date.fromisoformat(d)).days
-        if 0 <= age < 7 * n:
-            buckets[n - 1 - age // 7].append(w / 3600)
+        if 0 <= age < span * n:
+            buckets[n - 1 - age // span].append(w / 3600)
     q = lambda xs, f: sorted(xs)[min(len(xs) - 1, int(f * len(xs)))] if xs else 0.0
     med = [round(q(b, 0.5), 1) for b in buckets]
     p90 = [round(q(b, 0.9), 1) for b in buckets]
-    labels = [f"wk to {(today - dt.timedelta(days=7 * k)).strftime('%b %d')}" for k in range(n - 1, -1, -1)]
+    labels = [(f"wk to " if span == 7 else "") + (today - dt.timedelta(days=span * k)).strftime("%b %d") for k in range(n - 1, -1, -1)]
+    unit = "week" if span == 7 else "day"
     return (line(labels, [("median", SERIES[0], med), ("90th pct", CRIT, p90)])
             + legend([("median wait (h)", SERIES[0]), ("90th percentile (h)", CRIT)])
-            + '<p class="muted">Started jobs only, bucketed by start week; a week with no started jobs shows 0.</p>')
+            + f'<p class="muted">Started jobs only, bucketed by start {unit}; a {unit} with no started jobs shows 0.</p>')
 
 
 def in_window(waits, days):

@@ -47,7 +47,8 @@ def controls(page, days, static):
         return f'<span class="muted">last {days} d · static snapshot</span>'
     opts = "".join(f'<option value="{d}"{" selected" if d == days else ""}>last {d} d</option>' for d in DAYS)
     return (f'<form method="get" class="days"><input type="hidden" name="page" value="{page}">'
-            f'<select name="days" onchange="this.form.submit()">{opts}</select></form>')
+            f'<select name="days" onchange="this.form.submit()">{opts}</select></form>'
+            f'<a class="restart" href="restart" title="Restart the dashboard process so it picks up updated code">restart</a>')
 
 
 def shell(page, days, kpis, grid, alerts, colors, static):
@@ -134,6 +135,7 @@ svg .hover{{fill:transparent}} svg .hover:hover{{fill:rgba(255,255,255,.05)}}
 .legend i{{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}}
 .legend .hatch{{background:repeating-linear-gradient(45deg,var(--muted) 0 2px,transparent 2px 5px);border:1px solid var(--muted)}}
 .sec{{grid-column:1/-1;margin:10px 0 -6px;font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}}
+.restart{{color:var(--muted);font-size:12px;text-decoration:none;margin-left:6px}} .restart:hover{{color:var(--ink);text-decoration:underline}}
 .scan{{margin-top:10px}} .scan button{{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:7px 14px;font-size:13px;cursor:pointer}}
 .zoomable{{cursor:zoom-in}} .zoomable table,.zoomable a{{cursor:auto}}
 #zoom{{position:fixed;inset:0;z-index:50;background:rgba(5,10,20,.72);display:flex;align-items:center;justify-content:center;cursor:zoom-out;padding:20px}}

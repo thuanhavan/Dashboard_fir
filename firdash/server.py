@@ -208,6 +208,14 @@ def main():
             if path == "/logout":
                 self.send(303, "", [("Location", "/"), ("Set-Cookie", f"{cookie_name}=; Max-Age=0; Path=/")])
                 return
+            if path == "/restart":
+                # Exit after answering: Jupyter Server Proxy (or the user) starts a fresh process with the current code.
+                if not self.authed():
+                    self.send(401, LOGIN.format(err=""))
+                    return
+                self.send(303, "", [("Location", "./")])
+                threading.Timer(0.5, lambda: os._exit(0)).start()
+                return
             if path != "/":
                 self.send_error(404)
                 return

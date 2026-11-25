@@ -59,7 +59,7 @@ class LabPageTests(unittest.TestCase):
         kpis, grid, alerts, colors = self.run_lab()
         self.assertEqual(kpis.count('class="kpi"'), 6)
         for title in ("Space quota", "File-count quota", "/project by user (TiB)", "/nearline by user (TiB) · login-node copy of 2026-11-25",
-                      "CPU core-hours per month by member", "GPU-hours per month by member", "Queue wait per week",
+                      "CPU core-hours per month by member", "GPU-hours per month by member", "Queue wait per week · hours · last 30 d",
                       "Fairshare · cluster cores now", "Jobs finished per day · all members · last 30 d", "Jobs by member · last 30 d",
                       "Problem jobs, all members, last 30 d (1)"):
             self.assertIn(title, grid, title)
@@ -223,6 +223,8 @@ class ShellTests(unittest.TestCase):
         self.assertIn("id='zoom'", html)                   # click-to-enlarge overlay script is present
         self.assertEqual(html.count("<script>"), 1)
         self.assertIn('<option value="30" selected>', html)
+        self.assertIn('href="restart"', html)
+        self.assertIn("Queue wait per day · hours · last 7 d", html7)
 
     def test_static_me_page(self):
         html = self._with(fake_me(), lambda: render.build({"page": "me", "static": "1"}))
@@ -231,6 +233,7 @@ class ShellTests(unittest.TestCase):
         self.assertNotIn("<select", html)
         self.assertIn("last 7 d", html)
         self.assertNotIn("Scan now", html)                         # no button in a static snapshot
+        self.assertNotIn('href="restart"', html)
 
     def test_scan_states_and_start_scan(self):
         from firdash import server
