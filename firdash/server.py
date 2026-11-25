@@ -6,17 +6,20 @@ import secrets
 import socket
 import socketserver
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 from .collectors import USER
-from .render import CACHE_TTL, build, normalise
+from .render import CACHE_TTL, DEFAULT_DAYS, build, normalise
 
 PASSWORD_FILE = Path.home() / ".config" / "firdash" / "password"
 SOCKET_PATH = Path.home() / ".firdash" / "dash.sock"
 _cache = {}
+_building = set()
+_building_lock = threading.Lock()
 
 LOGIN = """<!doctype html><html><head><meta charset="utf-8"><title>DRAC dashboard</title>
 <style>body{{margin:0;height:100vh;display:grid;place-items:center;background:#0b1424;color:#f0efec;
@@ -69,13 +72,46 @@ def serve_socket(path, handler):
 
 
 def page(query):
-    """Rendered page, cached per normalised (page, days) so junk query strings cannot grow the cache."""
+    """Rendered page per normalised (page, days). A page older than CACHE_TTL is served as is and rebuilt in the
+    background, so a tab switch or reload never waits for sacct; only a page never built before is built inline."""
     key = normalise(dict(parse_qsl(query)))
-    t, body = _cache.get(key, (0, ""))
+    t, body = _cache.get(key, (0, None))
+    if body is None:
+        return _build(key)
     if time.time() - t > CACHE_TTL:
-        body = build({"page": key[0], "days": str(key[1])})
-        _cache[key] = (time.time(), body)
+        _refresh_async(key)
     return body
+
+
+def _build(key):
+    body = build({"page": key[0], "days": str(key[1])})
+    _cache[key] = (time.time(), body)
+    return body
+
+
+def _refresh_async(key):
+    """Rebuild one page in a daemon thread, at most one rebuild per key at a time."""
+    with _building_lock:
+        if key in _building:
+            return
+        _building.add(key)
+
+    def run():
+        try:
+            _build(key)
+        except Exception:  # noqa: BLE001 - a failed background refresh keeps the stale page; the next hit retries
+            pass
+        finally:
+            with _building_lock:
+                _building.discard(key)
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def warm():
+    """Build both default pages in the background right after start-up, so the first click is instant."""
+    for key in (("lab", DEFAULT_DAYS["lab"]), ("me", DEFAULT_DAYS["me"])):
+        _refresh_async(key)
 
 
 def main():
@@ -83,7 +119,7 @@ def main():
     ap.add_argument("--port", type=int, default=None,
                     help="serve on 127.0.0.1:PORT with a password (0 = random port); default: private socket, no password")
     ap.add_argument("--socket", default=str(SOCKET_PATH), help="socket path for the default mode")
-    ap.add_argument("--days", type=int, choices=(7, 30, 90), default=None, help="history window when the URL has none (7, 30 or 90)")
+    ap.add_argument("--days", type=int, choices=(7, 30), default=None, help="history window when the URL has none (7 or 30)")
     ap.add_argument("--page", choices=("lab", "me"), default="lab", help="page for --html")
     ap.add_argument("--html", metavar="FILE", help="write one page as a static snapshot and exit ('-' = stdout)")
     a = ap.parse_args()
@@ -164,6 +200,7 @@ def main():
         print(f"  ssh -N -L 18765:{a.socket} {USER}@{short}.fir.alliancecan.ca")
         print("  then open http://localhost:18765\n")
         print("Ctrl-C to stop.", flush=True)
+        warm()
         try:
             srv.serve_forever()
         except KeyboardInterrupt:
@@ -180,6 +217,7 @@ def main():
     print(f"  ssh -N -L {port}:localhost:{port} -J {USER}@fir.alliancecan.ca {USER}@{host.split('.')[0]}")
     print(f"  then open http://localhost:{port}\n")
     print("Ctrl-C to stop.", flush=True)
+    warm()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

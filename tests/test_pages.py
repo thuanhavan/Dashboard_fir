@@ -1,5 +1,6 @@
 import datetime as dt
 import re
+import time
 import unittest
 from unittest import mock
 
@@ -235,6 +236,45 @@ class ShellTests(unittest.TestCase):
             self.assertEqual(server.page("page=nonsense&days=999"), first)
             server.page("page=me")
         self.assertEqual(b.call_count, 2)
+        self.assertEqual(set(server._cache), {("lab", 30), ("me", 7)})
+
+    def test_server_serves_stale_page_and_refreshes_in_background(self):
+        import threading
+        from firdash import server
+        self.addCleanup(server._cache.clear)
+        server._cache.clear()
+        built = []
+        done = threading.Event()
+
+        def fake_build(params):
+            built.append(params["page"])
+            done.set()
+            return f"<html>{params['page']} {len(built)}</html>"
+
+        with mock.patch.object(server, "build", side_effect=fake_build):
+            first = server.page("page=lab")                       # cold: built inline
+            self.assertEqual(first, "<html>lab 1</html>")
+            server._cache[("lab", 30)] = (0, first)               # make it stale
+            done.clear()
+            self.assertEqual(server.page("page=lab"), first)      # stale copy served at once
+            self.assertTrue(done.wait(5))                         # ...and rebuilt in the background
+            for _ in range(50):
+                if server._cache[("lab", 30)][1] == "<html>lab 2</html>":
+                    break
+                time.sleep(0.02)
+        self.assertEqual(server._cache[("lab", 30)][1], "<html>lab 2</html>")
+        self.assertEqual(built, ["lab", "lab"])
+
+    def test_warm_builds_both_default_pages(self):
+        from firdash import server
+        self.addCleanup(server._cache.clear)
+        server._cache.clear()
+        with mock.patch.object(server, "build", side_effect=lambda params: params["page"]):
+            server.warm()
+            for _ in range(100):
+                if set(server._cache) == {("lab", 30), ("me", 7)}:
+                    break
+                time.sleep(0.02)
         self.assertEqual(set(server._cache), {("lab", 30), ("me", 7)})
 
 

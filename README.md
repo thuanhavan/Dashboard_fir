@@ -4,7 +4,7 @@ Dark-theme web dashboard for resource limits on the Alliance **Fir** cluster. St
 
 Pages: **Lab** (every group you belong to: quotas, who uses the space, core-hours and GPU-hours per month, queue
 wait, fairshare, cluster load, jobs by member) and **Me** (your /home and /scratch, your share of group storage,
-your jobs, efficiency, pending and problem jobs with hints). One control: the "last N days" window (7, 30, 90;
+your jobs, efficiency, pending and problem jobs with hints). One control: the "last N days" window (7 or 30;
 Lab defaults to 30, Me to 7). URL: `?page=lab|me&days=N`.
 
 Shows:

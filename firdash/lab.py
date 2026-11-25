@@ -35,7 +35,7 @@ def build_lab(days):
              "nd": lambda: cached("nodes", CACHE_TTL, c.nodes)}
     if accts:
         # Only usage and waits use the storage TTL (10 min): slow-changing, one slurmdbd query each.
-        tasks.update({"hist": lambda: cached(("lab-hist", days, accts), CACHE_TTL, c.recent, days, accounts),
+        tasks.update({"hist": lambda: cached(("lab-hist", days, accts), STORAGE_TTL, c.recent, days, accounts),
                       "usage": lambda: cached(("usage", accts), STORAGE_TTL, c.usage_by_month, accounts),
                       "waits": lambda: cached(("wait", days, accts), STORAGE_TTL, c.queue_wait, accounts, days)})
     d.update(gather(tasks))

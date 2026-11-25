@@ -10,7 +10,7 @@ from .cache import CACHE_TTL, STORAGE_TTL
 from .charts import CRIT, GOOD, OTHER, SERIES, WARN, esc, hatch_defs
 
 PAGES = [("lab", "Lab"), ("me", "Me")]
-DAYS = (7, 30, 90)
+DAYS = (7, 30)
 DEFAULT_DAYS = {"lab": 30, "me": 7}
 LOGO = Path(__file__).resolve().parent.parent / "docs" / "logo.png"
 ABOUT = ("Lab: storage, compute use and jobs of every group you belong to. Me: your own quotas and jobs. "
