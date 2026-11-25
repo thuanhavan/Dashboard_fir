@@ -7,11 +7,6 @@ from .charts import CRIT, GOOD, OTHER, SERIES, bars, columns, count, esc, legend
 
 BAD_STATES = ("FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "CANCELLED")
 EMPTY_ST = {"groups": [], "quotas": [], "breakdown": {}, "asof": None}
-
-
-def problems(hist):
-    """recent() rows whose state is a problem; rows too short for problems_table are skipped."""
-    return [r for r in hist if len(r) > 9 and r[2].partition(" ")[0] in BAD_STATES]
 REASONS = {"Priority": "waiting for higher-priority jobs", "Resources": "next in line, waiting for free nodes",
            "Dependency": "waits for another job", "DependencyNeverSatisfied": "dependency failed: will never start",
            "AssocGrpCPULimit": "account core limit reached", "QOSMaxJobsPerUserLimit": "per-user job limit",
@@ -293,6 +288,11 @@ def member_chart(hist):
             for u, v in sorted(by_user.items(), key=lambda kv: -sum(kv[1]))]
     return (bars(rows, xu, list(range(0, xu + 1, int(nice_step(xu)))), lambda t: f"{t:,}", value_w=170)
             + legend([("completed", SERIES[0]), ("problems", CRIT)]))
+
+
+def problems(hist):
+    """recent() rows whose state is a problem; rows too short for problems_table are skipped."""
+    return [r for r in hist if len(r) > 9 and r[2].partition(" ")[0] in BAD_STATES]
 
 
 def problems_table(bad, with_user=False):

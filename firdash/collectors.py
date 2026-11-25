@@ -19,12 +19,13 @@ def run(cmd, timeout=90):
 
 def run_checked(cmd, timeout=90):
     """Like run(), but a non-zero exit or a timeout raises RuntimeError (so a failure is never mistaken for empty data)."""
+    name = next((w for w in cmd.split() if "=" not in w), cmd[:20])
     try:
         r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        raise RuntimeError(f"timed out after {timeout}s: {cmd.split()[0]}") from None
+        raise RuntimeError(f"timed out after {timeout}s: {name}") from None
     if r.returncode != 0:
-        raise RuntimeError(f"{cmd.split()[0]} failed ({r.returncode}): {r.stderr.strip()[:120]}")
+        raise RuntimeError(f"{name} failed ({r.returncode}): {r.stderr.strip()[:120]}")
     return r.stdout
 
 

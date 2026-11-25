@@ -81,12 +81,13 @@ def main():
     ap.add_argument("--port", type=int, default=None,
                     help="serve on 127.0.0.1:PORT with a password (0 = random port); default: private socket, no password")
     ap.add_argument("--socket", default=str(SOCKET_PATH), help="socket path for the default mode")
-    ap.add_argument("--days", type=int, default=7, help="default sacct history window")
-    ap.add_argument("--html", metavar="FILE", help="write a one-page static snapshot and exit ('-' = stdout)")
+    ap.add_argument("--days", type=int, default=None, help="history window when the URL has none (7, 30 or 90)")
+    ap.add_argument("--page", choices=("lab", "me"), default="lab", help="page for --html")
+    ap.add_argument("--html", metavar="FILE", help="write one page as a static snapshot and exit ('-' = stdout)")
     a = ap.parse_args()
 
     if a.html:
-        html = build({"days": str(a.days), "static": "1"})
+        html = build({"page": a.page, "days": str(a.days or ""), "static": "1"})
         if a.html == "-":
             sys.stdout.buffer.write(html.encode("ascii", "xmlcharrefreplace"))
         else:
@@ -146,7 +147,8 @@ def main():
             if not self.authed():
                 self.send(401, LOGIN.format(err=""))
                 return
-            self.send(200, page(urlsplit(self.path).query or f"days={a.days}"))
+            q = urlsplit(self.path).query
+            self.send(200, page(q if q or not a.days else f"days={a.days}"))
 
         def log_message(self, *args):
             pass

@@ -2,7 +2,7 @@ import datetime as dt
 import unittest
 from unittest import mock
 
-from firdash import cache, collectors as c, lab, me, panels
+from firdash import cache, collectors as c, lab, me, panels, render
 
 ST = {"groups": ["def-a", "def-b"],
       "quotas": [{"label": "def-a /project", "used": 86e12, "quota": 100e12, "files": 1.29e6, "fquota": 2e6},
@@ -175,3 +175,43 @@ class MePageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShellTests(unittest.TestCase):
+    def _with(self, patches, fn):
+        self.addCleanup(cache._ttl.clear)
+        for p in patches:
+            p.start()
+        try:
+            return fn()
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_build_defaults_and_tabs(self):
+        html = self._with(fake_lab(), lambda: render.build({}))
+        html7 = self._with(fake_lab(), lambda: render.build({"page": "lab", "days": "7"}))
+        bad = self._with(fake_lab(), lambda: render.build({"page": "nonsense", "days": "999"}))
+        self.assertIn("<title>Research Computing Dashboard · Lab</title>", html)
+        self.assertIn('href="?page=lab&amp;days=30"', html)
+        self.assertIn('href="?page=me&amp;days=7"', html)
+        self.assertIn("last 30 d", html)
+        self.assertIn("last 7 d", html7)
+        self.assertIn("last 30 d", bad)                   # unknown page/days fall back to Lab / 30
+        self.assertNotIn("Boards", html)
+        self.assertNotIn("<script>", html)
+        self.assertIn('<option value="30" selected>', html)
+
+    def test_static_me_page(self):
+        html = self._with(fake_me(), lambda: render.build({"page": "me", "static": "1"}))
+        self.assertIn("<title>Research Computing Dashboard · Me</title>", html)
+        self.assertIn("static snapshot", html)
+        self.assertNotIn("<select", html)
+        self.assertIn("last 7 d", html)
+
+    def test_hatch_patterns_are_unique(self):
+        html = self._with(fake_lab(), lambda: render.build({}))
+        import re
+        ids = re.findall(r'<pattern id="(h[0-9a-f]+)"', html)
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertTrue(ids)

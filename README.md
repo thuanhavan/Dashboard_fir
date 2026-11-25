@@ -2,25 +2,25 @@
 
 Dark-theme web dashboard for resource limits on the Alliance **Fir** cluster. Standard library only, so no install is needed.
 
-Pages (sidebar): **Overview**, **Storage**, **Compute**, **Jobs**. Sidebar filters: groups, filesystems, job-history window.
+Pages: **Lab** (every group you belong to: quotas, who uses the space, core-hours and GPU-hours per month, queue
+wait, fairshare, cluster load, jobs by member) and **Me** (your /home and /scratch, your share of group storage,
+your jobs, efficiency, pending and problem jobs with hints). One control: the "last N days" window (7, 30, 90;
+Lab defaults to 30, Me to 7). URL: `?page=lab|me&days=N`.
 
 Shows:
 - Storage quotas (space + file count) for every def-/rrg- group you belong to, plus /home and /scratch
 - /project and /nearline usage per user (tape-only hatched)
 - Cluster cores busy/idle by node type, and fairshare per account
 - Job tiles; queue and problem-job tables are collapsed
-- Whole-filesystem fill (all users): /home + /project + /scratch share one Lustre FS; /nearline disk cache
-- Usage trend and "full in N days" forecast per quota (hourly snapshots in `~/.firdash/history.jsonl`; trends appear after a day)
-- Array-job progress (completed / running / pending / failed per array)
 - Pending jobs with Slurm's expected start time and the reason in plain words
 - Job efficiency: peak memory vs requested and CPU efficiency per job name, idle core-hours
-- Maintenance windows and reservations
+- CPU core-hours and GPU-hours per member per calendar month (sreport), queue wait per week (median and 90th percentile)
 
 Compute-page banner `docs/h100.jpg`: NVIDIA H100 illustration from
 [tatacommunications.com](https://www.tatacommunications.com/knowledge-base/cloud-ai/nvidia-h100-gpu), third-party
 image kept for internal lab use only; replace it before sharing the dashboard publicly.
 
-Data comes from `diskusage_report`, `lfs quota` (per-group project ID; `df` misreports /nearline file counts), the nightly robinhood stats behind `diskusage_rbh` (`/project/.stats`, `/nearline/.stats`), `sinfo`, `squeue`, `sshare` and `sacct`. Storage refreshes every 10 min, everything else every 60 s.
+Data comes from `diskusage_report`, `lfs quota` (per-group project ID; `df` misreports /nearline file counts), the nightly robinhood stats behind `diskusage_rbh` (`/project/.stats`, `/nearline/.stats`), `sinfo`, `squeue`, `sshare`, `sacct` and `sreport`. Storage refreshes every 10 min, everything else every 60 s.
 
 ## For lab members
 
@@ -56,7 +56,8 @@ of <date>"); run `bin/firdash --html /dev/null` on a login node now and then to 
 bin/firdash                      # default: private socket ~/.firdash/dash.sock (only you can open it)
 bin/firdash --port 8765          # alternative: 127.0.0.1:8765 with a password page
 bin/firdash --days 30            # default job-history window
-bin/firdash --html report.html   # static snapshot, no server
+bin/firdash --html lab.html              # static snapshot of the Lab page, no server
+bin/firdash --html me.html --page me     # same for the Me page
 ```
 
 **Socket mode (default).** No password: the socket file is mode 600, so other users on the login node
@@ -81,7 +82,11 @@ Reload the page to refresh (storage is cached 10 min, everything else 60 s).
 ```
 bin/firdash            launcher (symlink into ~/bin to put it on PATH)
 firdash/collectors.py  runs the cluster commands and parses their output
+firdash/cache.py       TTL cache, storage bundle
+firdash/panels.py      cards and charts
+firdash/lab.py         the Lab page
+firdash/me.py          the Me page
 firdash/charts.py      SVG bar / column charts
-firdash/render.py      pages, KPI tiles, layout
+firdash/render.py      shell: tabs, days select, CSS
 firdash/server.py      CLI + HTTP server
 ```

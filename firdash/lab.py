@@ -8,7 +8,6 @@ from .panels import (EMPTY_ST, card, extend_colors, fairshare_chart, fold, gathe
                      in_window, safe, usage_chart, usage_month_chart, user_colors, val)
 
 
-
 def group_quotas(st):
     """Group rows only (not the user's /home and /scratch), /project before /nearline."""
     order = {"/project": 0, "/nearline": 1}
