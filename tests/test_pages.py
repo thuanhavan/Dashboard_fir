@@ -58,7 +58,7 @@ class LabPageTests(unittest.TestCase):
     def test_lab_has_six_kpis_and_all_cards(self):
         kpis, grid, alerts, colors = self.run_lab()
         self.assertEqual(kpis.count('class="kpi"'), 6)
-        for title in ("Space quota", "File-count quota", "/project by user (TiB)", "/nearline by user (TiB) · login-node copy of 2026-11-25",
+        for title in ("Space quota", "File-count quota", "/project by user (TiB) · nightly stats, may lag recent moves", "/nearline by user (TiB) · nightly stats · login-node copy of 2026-11-25",
                       "CPU core-hours per month by member", "GPU-hours per month by member", "Queue wait per week · hours · last 30 d",
                       "Fairshare · cluster cores now", "Jobs finished per day · all members · last 30 d", "Jobs by member · last 30 d",
                       "Problem jobs, all members, last 30 d (1)"):
