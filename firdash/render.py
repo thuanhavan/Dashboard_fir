@@ -71,7 +71,26 @@ def shell(page, days, kpis, grid, alerts, colors, static):
 <div class="kpis">{kpis}</div>
 <div class="grid">{grid}</div>
 </main>
+{ZOOM}
 </body></html>"""
+
+
+ZOOM = """<script>
+(function(){
+ function close(){const o=document.getElementById('zoom');if(o)o.remove();}
+ document.querySelectorAll('.grid>section').forEach(s=>{
+  if(s.querySelector('details'))return;
+  s.classList.add('zoomable');
+  s.addEventListener('click',e=>{
+   if(e.target.closest('a,summary,table,select,input,button'))return;
+   if(window.getSelection&&String(window.getSelection()))return;
+   close();const o=document.createElement('div');o.id='zoom';
+   const c=s.cloneNode(true);c.style.gridColumn='';c.classList.remove('zoomable');o.appendChild(c);
+   o.addEventListener('click',e=>{if(e.target===o)close();});
+   document.body.appendChild(o);});});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape')close();});
+})();
+</script>"""
 
 
 CSS = f"""
@@ -113,6 +132,10 @@ svg .hover{{fill:transparent}} svg .hover:hover{{fill:rgba(255,255,255,.05)}}
 .legend{{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink2);margin-top:6px}}
 .legend i{{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}}
 .legend .hatch{{background:repeating-linear-gradient(45deg,var(--muted) 0 2px,transparent 2px 5px);border:1px solid var(--muted)}}
+.zoomable{{cursor:zoom-in}} .zoomable table,.zoomable a{{cursor:auto}}
+#zoom{{position:fixed;inset:0;z-index:50;background:rgba(5,10,20,.72);display:flex;align-items:center;justify-content:center;cursor:zoom-out;padding:20px}}
+#zoom>section{{width:min(1100px,96vw);max-height:92vh;overflow:auto;box-shadow:0 12px 48px rgba(0,0,0,.6);cursor:auto}}
+#zoom>section h3{{font-size:20px}}
 details{{margin:4px 0;overflow-x:auto}} summary{{cursor:pointer;font-size:14px;color:var(--ink2);padding:6px 0}}
 table{{border-collapse:collapse;font-size:12px;width:100%;margin:6px 0 10px;font-variant-numeric:tabular-nums}}
 td,th{{border-bottom:1px solid var(--grid);padding:4px 6px;text-align:left}} th{{color:var(--muted);font-weight:500}}

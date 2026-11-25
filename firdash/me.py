@@ -3,7 +3,7 @@ from . import cache
 from . import collectors as c
 from .cache import CACHE_TTL, STORAGE_TTL, cached
 from .charts import count, size
-from .panels import (EMPTY_ST, JUPYTER_JOB, card, efficiency_card, fold, gather, jobs_per_day, kpi, my_share_chart, ok, pct,
+from .panels import (EMPTY_ST, JUPYTER_JOB, card, efficiency_card, fold, folders_table, gather, jobs_per_day, kpi, my_share_chart, ok, pct,
                      pending_table, problems, problems_table, quota_chart, quota_tile, safe, val)
 
 SCRATCH_NOTE = "files unused for 60 days are purged"
@@ -19,7 +19,8 @@ def build_me(days):
                 "jb": lambda: cached("jobs", CACHE_TTL, c.jobs),
                 "hist": lambda: cached(("my-hist", days), CACHE_TTL, c.recent, days),
                 "pend": lambda: cached("pending", CACHE_TTL, c.pending_start),
-                "eff": lambda: cached(("eff", days), STORAGE_TTL, c.efficiency, days)})
+                "eff": lambda: cached(("eff", days), STORAGE_TTL, c.efficiency, days),
+                "dirs": lambda: cached("my-folders", 3600, lambda: c.my_folders(c.groups()))})
     st = ok(d, "st") or EMPTY_ST
     mine = my_quotas(st)
     jb = ok(d, "jb")
@@ -62,6 +63,7 @@ def build_me(days):
              + '<div class="flab">files</div>' + quota_chart(my_quotas(val(d, "st")), "files", "fquota", count))),
         safe("My share of group storage", lambda: card("My share of group storage",
              my_share_chart(val(d, "st")["breakdown"], val(d, "st")["quotas"]))),
+        safe("My folders in /project", lambda: card("My folders in /project", folders_table(val(d, "dirs")))),
         safe("My jobs finished per day", lambda: card(f"My jobs finished per day · last {days} d", jobs_per_day(val(d, "hist"), days))),
         safe("My job efficiency", lambda: efficiency_card(val(d, "eff"), days)[0]),
         safe("Pending jobs", lambda: fold(f"Pending jobs ({len(val(d, 'pend'))})", pending_table(val(d, "pend")), open_=True)),

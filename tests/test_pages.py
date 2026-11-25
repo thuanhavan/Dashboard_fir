@@ -117,7 +117,8 @@ EFF = [{"id": "2", "name": "j", "state": "TIMEOUT", "elapsed": 3600.0, "cpu": 18
 def fake_me(**over):
     cache._ttl.clear()
     pats = {"storage": lambda: ST, "jobs": lambda: JB, "recent": lambda d, a=None: MYHIST,
-            "pending_start": lambda: PEND, "efficiency": lambda d: EFF}
+            "pending_start": lambda: PEND, "efficiency": lambda d: EFF, "groups": lambda: ["def-a"],
+            "my_folders": lambda groups: [("def-a/mine", 5 * 2**30, "2026-11-01"), ("def-a/big", None, "2026-10-01")]}
     pats.update(over)
     ms = [mock.patch.object(cache, "storage", pats.pop("storage")), mock.patch.object(c, "USER", "me")]
     ms += [mock.patch.object(c, k, v) for k, v in pats.items()]
@@ -141,6 +142,10 @@ class MePageTests(unittest.TestCase):
         self.assertEqual(kpis.count('class="kpi"'), 5)
         self.assertIn("files unused for 60 days are purged", kpis)
         self.assertIn("1 · 1", kpis)                                   # running · pending
+        self.assertIn("My folders in /project", grid)
+        self.assertIn("def-a/mine", grid)
+        self.assertIn("5 GiB", grid)
+        self.assertIn("not measured", grid)
         for title in ("My /home and /scratch", "My share of group storage", "My jobs finished per day · last 7 d",
                       "My job efficiency · last 7 d · 1 jobs", "Pending jobs (1)", "Problem jobs, last 7 d (1)"):
             self.assertIn(title, grid, title)
@@ -209,7 +214,8 @@ class ShellTests(unittest.TestCase):
         self.assertIn("last 7 d", html7)
         self.assertIn("last 30 d", bad)                   # unknown page/days fall back to Lab / 30
         self.assertNotIn("Boards", html)
-        self.assertNotIn("<script>", html)
+        self.assertIn("id='zoom'", html)                   # click-to-enlarge overlay script is present
+        self.assertEqual(html.count("<script>"), 1)
         self.assertIn('<option value="30" selected>', html)
 
     def test_static_me_page(self):

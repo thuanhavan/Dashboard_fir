@@ -126,3 +126,24 @@ class FailLoudlyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FoldersTests(unittest.TestCase):
+    def test_my_folders_lists_owned_dirs_once_with_sizes(self):
+        listing = "/p/g/a\t2026-11-01\n/p/g/a/sub\t2026-11-02\n/p/g/b\t2026-10-01\n"
+
+        def fake_run(cmd, timeout=90):
+            if cmd.startswith("find "):
+                return listing
+            if "'/p/g/a'" in cmd:
+                return "1073741824\t/p/g/a\n"
+            return ""                                        # du for /p/g/b timed out
+        with mock.patch.object(c, "run", fake_run), mock.patch.object(c, "USER", "me"), \
+                mock.patch.object(c.os.path, "realpath", lambda x: "/p/g"), mock.patch.object(c.os.path, "isdir", lambda x: True):
+            got = c.my_folders(["g"])
+        self.assertEqual(got, [("g/a", 1073741824, "2026-11-01"), ("g/b", None, "2026-10-01")])
+
+    def test_my_folders_without_project_dir(self):
+        with mock.patch.object(c.os.path, "isdir", lambda x: False):
+            self.assertEqual(c.my_folders(["g"]), [])
+

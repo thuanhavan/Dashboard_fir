@@ -320,3 +320,34 @@ def queue_wait(accounts, days):
     if not accounts:
         return []
     return parse_queue_wait(run_checked(f"SLURM_TIME_FORMAT=standard sacct -a -A {','.join(sorted(set(accounts)))} -S now-{days}days -X -n -P -o Submit,Start,State", 180))
+
+
+def my_folders(groups, depth=2, timeout=30):
+    """[(label, bytes | None, 'YYYY-MM-DD')] for the directories the user OWNS (created, not just shared with them)
+    in the top `depth` levels of /project/<group>. A folder inside an owned folder is not listed again. Size is
+    `du -s` of everything inside (None when du did not finish within `timeout` seconds). Sorted by size, biggest first."""
+    found = []
+    for g in groups:
+        base = os.path.realpath(f"/project/{g}")
+        if not os.path.isdir(base):
+            continue
+        out = run(f"find {base} -mindepth 1 -maxdepth {depth} -type d -user {USER} -printf '%p\\t%TY-%Tm-%Td\\n' 2>/dev/null", 60)
+        kept = []
+        for line in sorted(out.splitlines()):
+            path, _, mtime = line.partition("\t")
+            if not path or any(path.startswith(k + "/") for k in kept):
+                continue
+            kept.append(path)
+            found.append((g, path, base, mtime))
+    if not found:
+        return []
+    with concurrent.futures.ThreadPoolExecutor(4) as ex:
+        sizes = list(ex.map(lambda f: _du(f[1], timeout), found))
+    rows = [(f"{g}/{path[len(base) + 1:]}", n, mtime) for (g, path, base, mtime), n in zip(found, sizes)]
+    return sorted(rows, key=lambda r: (r[1] is None, -(r[1] or 0), r[0]))
+
+
+def _du(path, timeout):
+    out = run(f"du -s -B1 '{path}' 2>/dev/null", timeout)
+    return int(out.split()[0]) if out.strip() and out.split()[0].isdigit() else None
+

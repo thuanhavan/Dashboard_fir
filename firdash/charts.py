@@ -120,7 +120,7 @@ def legend(items, tape=False):
 
 def columns(xlabels, series, width=620, height=260, max_bw=28):
     """Stacked columns. series: [(name, color, [values])] sharing xlabels."""
-    left, right, top, bottom = 40, 10, 12, 26
+    left, right, top, bottom = 62, 10, 12, 26   # room for "120,000" on the y axis
     pw, ph = width - left - right, height - top - bottom
     totals = [sum(s[2][i] for s in series) for i in range(len(xlabels))]
     step = max(1, int(nice_step(max(totals + [1]))))

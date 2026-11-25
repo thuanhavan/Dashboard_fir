@@ -360,3 +360,14 @@ def efficiency_card(eff, days):
     body = (chart + legend([("peak memory used", SERIES[0])]).replace("</div>", '<span><i class="hatch"></i>requested, never used</span></div>')
             + '<p class="muted">GiB. Per job name, top 10 by core-hours; mem = median peak / requested; CPU = CPU time / (elapsed × cores).</p>')
     return card(f"My job efficiency · last {days} d · {len(eff)} jobs", body), cpu_eff, mem_eff, idle_h
+
+
+def folders_table(rows, timeout=30):
+    """rows = collectors.my_folders(). A None size means du did not finish within the time budget."""
+    if not rows:
+        return '<p class="muted">No folders of yours in the top two levels of /project.</p>'
+    body = [[label, size(n) if n is not None else f"not measured (> {timeout} s)", mtime] for label, n, mtime in rows]
+    return (table(["Folder", "Size of everything inside", "Modified"], body)
+            + '<p class="muted">Folders you own (created by you) in the top two levels of /project. Shared folders someone '
+              'else created are not listed even if you can write to them. Rescanned once an hour.</p>')
+
