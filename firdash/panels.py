@@ -210,23 +210,25 @@ def usage_month_chart(usage, kind, colors):
     for m in months:
         for u, v in usage[m].items():
             totals[u] = totals.get(u, 0.0) + v[kind]
-    order = [u for u in sorted(totals, key=lambda u: -totals[u]) if totals[u] > 0]
+    order = [u for u in sorted(totals, key=lambda u: -totals[u]) if round(totals[u]) > 0]
     if not order:
         return '<p class="muted">No usage recorded in this period.</p>'
     top, rest = order[:len(SERIES)], order[len(SERIES):]
-    series = [(u, colors.get(u, SERIES[i % len(SERIES)]), [round(usage[m].get(u, {}).get(kind, 0.0)) for m in months])
-              for i, u in enumerate(top)]
+    series = [(u, colors.get(u, OTHER), [round(usage[m].get(u, {}).get(kind, 0.0)) for m in months])
+              for u in top]
     if rest:
         series.append(("other", OTHER, [round(sum(usage[m].get(u, {}).get(kind, 0.0) for u in rest)) for m in months]))
     return columns([month_label(m) for m in months], series, max_bw=90) + legend([(n, col) for n, col, _ in series])
 
 
 def queue_wait_chart(waits, days):
-    """Median and 90th-percentile queue wait per week, in hours. waits = collectors.queue_wait()."""
+    """Median and 90th-percentile queue wait per whole week, in hours. waits = collectors.queue_wait().
+
+    Percentiles are upper nearest-rank (with 1-2 jobs in a week the median equals the max)."""
     if not waits:
         return '<p class="muted">No started jobs in this window.</p>'
     today = dt.date.today()
-    n = max(1, -(-days // 7))
+    n = max(1, days // 7)
     buckets = [[] for _ in range(n)]
     for d, w in waits:
         age = (today - dt.date.fromisoformat(d)).days
@@ -237,7 +239,8 @@ def queue_wait_chart(waits, days):
     p90 = [round(q(b, 0.9), 1) for b in buckets]
     labels = [f"wk to {(today - dt.timedelta(days=7 * k)).strftime('%b %d')}" for k in range(n - 1, -1, -1)]
     return (line(labels, [("median", SERIES[0], med), ("90th pct", CRIT, p90)])
-            + legend([("median wait (h)", SERIES[0]), ("90th percentile (h)", CRIT)]))
+            + legend([("median wait (h)", SERIES[0]), ("90th percentile (h)", CRIT)])
+            + '<p class="muted">Started jobs only, bucketed by start week; a week with no started jobs shows 0.</p>')
 
 
 # ---- job charts and tables ----------------------------------------------------------------------------------

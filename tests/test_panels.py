@@ -24,6 +24,17 @@ class ChartTests(unittest.TestCase):
         self.assertIn("median", html)
         self.assertIn("90th", html)
         self.assertEqual(html.count("<polyline"), 2)
+        self.assertIn("median: 4.0", html)    # newest week waits 1..7 h, upper nearest-rank median
+        self.assertIn("median: 11.0", html)   # older week waits 8..14 h
+        self.assertEqual(html.count("wk to"), 4)  # 2 labels, 2 tooltips
+
+    def test_queue_wait_chart_empty_week_shows_zero(self):
+        import datetime as dt
+        today = dt.date.today()
+        waits = [((today - dt.timedelta(days=d)).isoformat(), 3600.0) for d in range(0, 3)]
+        html = p.queue_wait_chart(waits, 14)
+        self.assertIn("median: 0.0", html)
+        self.assertIn("a week with no started jobs shows 0", html)
 
     def test_member_chart_counts_completed_and_problems(self):
         hist = [["1", "x", "COMPLETED", "", "", "", "", "", "2026-11-01T00:00:00", "a"],
@@ -88,6 +99,7 @@ class CacheTests(unittest.TestCase):
         n = []
         f = lambda: n.append(1) or len(n)
         cache._ttl.clear()
+        self.addCleanup(cache._ttl.clear)
         self.assertEqual(cache.cached("k", 60, f), 1)
         self.assertEqual(cache.cached("k", 60, f), 1)
         self.assertEqual(len(n), 1)
@@ -95,6 +107,7 @@ class CacheTests(unittest.TestCase):
     def test_cached_does_not_store_exceptions(self):
         from firdash import cache
         cache._ttl.clear()
+        self.addCleanup(cache._ttl.clear)
         calls = []
 
         def flaky():

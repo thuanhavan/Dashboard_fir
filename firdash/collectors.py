@@ -102,7 +102,7 @@ def _fs_stats(fs, group):
         with open(live) as f:
             data["stats"] = json.load(f).get("hsm_size", [])
         data["quota"] = _quota_row(fs, group)
-    except OSError:
+    except (OSError, ValueError):
         pass
     if data["stats"]:
         try:

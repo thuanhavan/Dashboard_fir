@@ -98,6 +98,10 @@ class BreakdownTests(unittest.TestCase):
             self.assertEqual(c.user_breakdown("project", "g"), {"alice": {"disk": 12.0, "tape": 0.0, "files": 5}})
             self.assertEqual(c.user_breakdown("nearline", "g"), {"alice": {"disk": 0.0, "tape": 100.0, "files": 2}})
 
+    def test_fs_stats_survives_truncated_live_json(self):
+        with mock.patch("builtins.open", mock.mock_open(read_data='{"hsm_size": [')):
+            self.assertEqual(c._fs_stats("project", "g"), {"quota": None, "stats": [], "asof": None})
+
     def test_removed_collectors_are_gone(self):
         for name in ("group_jobs", "filesystems", "arrays", "reservations", "pending_lab"):
             self.assertFalse(hasattr(c, name), name)
