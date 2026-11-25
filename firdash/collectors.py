@@ -1,6 +1,8 @@
+import json
 import os
 import re
 import subprocess
+import time
 
 USER = os.environ.get("USER", "")
 UNITS = {"B": 1, "KiB": 2**10, "MiB": 2**20, "GiB": 2**30, "TiB": 2**40, "PiB": 2**50}
@@ -40,35 +42,100 @@ def groups():
     return sorted(g for g in run("groups").split() if g.startswith(("def-", "rrg-", "rpp-")))
 
 
+STATS_CACHE = os.path.join(os.path.expanduser("~"), ".firdash", "stats")
+
+
+def _quota_row(fs, group):
+    """Group quota from lfs on a node where /{fs} is mounted; None otherwise."""
+    path = os.path.realpath(f"/{fs}/{group}")
+    if not os.path.isdir(path):
+        return None
+    pid = run(f"lfs project -d {path}", 30).split()
+    if not pid or not pid[0].isdigit() or pid[0] == "0":
+        return None
+    q = run(f"lfs quota -q -p {pid[0]} /{fs}", 30).replace("*", "").split()
+    if len(q) < 8:
+        return None
+    return {"label": f"{group} /{fs}", "used": float(q[1]) * 1024, "quota": float(q[3]) * 1024,
+            "files": float(q[5]), "fquota": float(q[7])}
+
+
+_memo = {}
+
+
+def fs_stats(fs, group):
+    """Memoised for 60 s: the storage layer asks for the same file several times per refresh."""
+    hit = _memo.get((fs, group))
+    if hit and time.time() - hit[0] < 60:
+        return hit[1]
+    data = _fs_stats(fs, group)
+    _memo[(fs, group)] = (time.time(), data)
+    return data
+
+
+def _fs_stats(fs, group):
+    """Quota row and per-user stats for one group filesystem.
+
+    Reads the nightly robinhood file /{fs}/.stats/{group}.json (what diskusage_rbh prints) and the lfs quota.
+    /nearline is mounted on login nodes only, so whenever both are readable they are also written to
+    ~/.firdash/stats/{fs}-{group}.json; on a node without the mount (compute nodes, where the published
+    snapshot is built) that copy is used instead and "asof" carries its date.
+    Returns {"quota": row|None, "stats": [...], "asof": "YYYY-MM-DD"|None}.
+    """
+    live = f"/{fs}/.stats/{group}.json"
+    cache = os.path.join(STATS_CACHE, f"{fs}-{group}.json")
+    data = {"quota": None, "stats": [], "asof": None}
+    try:
+        with open(live) as f:
+            data["stats"] = json.load(f).get("hsm_size", [])
+        data["quota"] = _quota_row(fs, group)
+    except OSError:
+        pass
+    if data["stats"]:
+        try:
+            os.makedirs(STATS_CACHE, exist_ok=True)
+            tmp = cache + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump({"time": time.strftime("%Y-%m-%d %H:%M"), **data}, f)
+            os.replace(tmp, cache)
+        except OSError:
+            pass
+        return data
+    try:
+        with open(cache) as f:
+            d = json.load(f)
+        return {"quota": d.get("quota"), "stats": d.get("stats", []), "asof": d.get("time", "")[:10]}
+    except (OSError, ValueError):
+        return data
+
+
 def group_quotas():
     rows = []
     for g in groups():
         for fs in ("project", "nearline"):
-            path = os.path.realpath(f"/{fs}/{g}")
-            if not os.path.isdir(path):
-                continue
-            pid = run(f"lfs project -d {path}", 30).split()
-            if not pid or not pid[0].isdigit() or pid[0] == "0":
-                continue
-            q = run(f"lfs quota -q -p {pid[0]} /{fs}", 30).replace("*", "").split()
-            if len(q) < 8:
-                continue
-            rows.append({"label": f"{g} /{fs}", "used": float(q[1]) * 1024, "quota": float(q[3]) * 1024,
-                         "files": float(q[5]), "fquota": float(q[7])})
+            row = fs_stats(fs, g)["quota"]
+            if row:
+                rows.append(row)
     return rows
 
 
 def user_breakdown(fs, group):
-    """{user: {"disk": bytes, "tape": bytes}} from diskusage_rbh."""
+    """{user: {"disk": bytes, "tape": bytes}} from the robinhood stats, same rules as diskusage_rbh."""
     users = {}
-    for line in run(f"diskusage_rbh {fs} {group} --all_users", 120).splitlines():
-        m = re.match(r"\s*(\S+)\s+(\d+)\s+([\d.]+) GiB\s+(.+?)\s*$", line)
-        if not m or m.group(1) == "Total":
+    for e in fs_stats(fs, group)["stats"]:
+        loc = e.get("location", "")
+        if e.get("uid") == "root" or (loc == "On disk") != (fs == "project"):
             continue
-        u, _, gib, loc = m.groups()
-        d = users.setdefault(u, {"disk": 0.0, "tape": 0.0})
-        d["tape" if loc == "On tape" else "disk"] += float(gib) * 2**30
+        n = e.get("size", 0) if loc == "On tape" else e.get("volume", 0)
+        d = users.setdefault(e["uid"], {"disk": 0.0, "tape": 0.0})
+        d["tape" if loc == "On tape" else "disk"] += float(n)
     return {u: v for u, v in users.items() if v["disk"] + v["tape"] > 0}
+
+
+def stats_asof():
+    """Oldest cache date in use for /nearline, or None when it was read live."""
+    dates = [d for d in (fs_stats("nearline", g)["asof"] for g in groups()) if d]
+    return min(dates) if dates else None
 
 
 def fairshare():

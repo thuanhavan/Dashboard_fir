@@ -80,7 +80,7 @@ def _storage():
             bd = {(fs, g): ex.submit(c.user_breakdown, fs, g) for fs in ("project", "nearline") for g in gs}
             fsys = ex.submit(c.filesystems)
             _slow["data"] = {"groups": gs, "quotas": gq.result() + uq.result(), "filesystems": fsys.result(),
-                             "breakdown": {k: f.result() for k, f in bd.items()}}
+                             "breakdown": {k: f.result() for k, f in bd.items()}, "asof": c.stats_asof()}
         _slow["t"] = time.time()
         record_history(_slow["data"]["quotas"] + _slow["data"]["filesystems"])
     return _slow["data"]
@@ -590,7 +590,8 @@ def build(params):
     fair = card("Fairshare · higher = sooner start", fairshare_chart(fs))
     users = list(colors.items()) + [("other", OTHER)]
     proj_u = card("/project by user (TiB)", usage_chart(st["breakdown"], "project", sel_groups, colors, False) + legend(users)) if "project" in sel_fs else ""
-    near_u = card("/nearline by user (TiB)", usage_chart(st["breakdown"], "nearline", sel_groups, colors, True) + legend(users, True)) if "nearline" in sel_fs else ""
+    near_title = "/nearline by user (TiB)" + (f" · login-node copy of {st['asof']}" if st.get("asof") else "")
+    near_u = card(near_title, usage_chart(st["breakdown"], "nearline", sel_groups, colors, True) + legend(users, True)) if "nearline" in sel_fs else ""
     by_user = {}
     for r in jh:
         st_ = r[2].split()[0]

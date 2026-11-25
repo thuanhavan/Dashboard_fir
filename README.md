@@ -20,7 +20,7 @@ Compute-page banner `docs/h100.jpg`: NVIDIA H100 illustration from
 [tatacommunications.com](https://www.tatacommunications.com/knowledge-base/cloud-ai/nvidia-h100-gpu), third-party
 image kept for internal lab use only; replace it before sharing the dashboard publicly.
 
-Data comes from `diskusage_report`, `lfs quota` (per-group project ID; `df` misreports /nearline file counts), `diskusage_rbh`, `sinfo`, `squeue`, `sshare` and `sacct`. Storage refreshes every 10 min, everything else every 60 s.
+Data comes from `diskusage_report`, `lfs quota` (per-group project ID; `df` misreports /nearline file counts), the nightly robinhood stats behind `diskusage_rbh` (`/project/.stats`, `/nearline/.stats`), `sinfo`, `squeue`, `sshare` and `sacct`. Storage refreshes every 10 min, everything else every 60 s.
 
 ## For lab members
 
@@ -37,27 +37,36 @@ powershell.exe -NoProfile -Command "ssh YOURNAME@fir.alliancecan.ca /project/def
 
 Double-click it, approve the Duo push, and the dashboard opens in the browser (~20 s).
 
-**Web link (any computer):** open <https://fir.gaig.ca> and pick one of two buttons. Both sign in with your Fir
-account + Duo and start a small JupyterHub session (1 core, 2 GB, 1 h, `def-kanj241_cpu`; no Server Options form).
-The session ends by itself; if one is already running it is reused.
+**Web page (no Fir login):** <https://fir.gaig.ca> is a static copy of the dashboard (all groups, all filesystems,
+jobs of all members) rebuilt on Fir every hour and pushed to the gaig VM. It opens at once from the USask network or
+VPN; from elsewhere it asks for the shared dashboard login (ask Fang or Thuan). How it runs:
 
-1. **Open dashboard directly** (one-time setup): the live dashboard opens by itself, no notebook. Setup, on Fir:
+- On Fir, `deploy/firdash-push.sbatch` (copied to `~/firdash-push/`) builds the snapshot on a compute node with
+  `firdash-html`, pipes it over SSH to the VM, and resubmits itself with `--begin=now+1hour`. The SSH key
+  `~/.ssh/gaig-push` is used for nothing else. Stop with `scancel -n firdash-push`; restart with
+  `sbatch ~/firdash-push/firdash-push.sbatch`; logs in `~/firdash-push/log/`.
+- On the VM, user `firpush` accepts that key with `restrict,command="/usr/local/bin/receive-fir-dash"`
+  (`deploy/receive-fir-dash`): the key can only hand over one HTML file, which lands in
+  `/var/www/fir-gaig/snapshot/index.html`. nginx (`/etc/nginx/sites-available/fir-redirect`) serves it with the
+  USask-network-or-login rule; the login is in `/etc/nginx/fir-guest.htpasswd`.
+- The page shows the account that built it (the "Fir <user>" badge) and the build time and node in the sidebar
+  footer. /nearline is mounted on login nodes only, so the compute-node build uses the copy of the nightly
+  robinhood stats and quota that any login-node run of `firdash` under the same account leaves in
+  `~/.firdash/stats/` (the /nearline card says "login-node copy of <date>"). Run `firdash --html /dev/null` on a
+  login node now and then to refresh it. Currently built under Fang's account as a trial.
 
-   ```bash
-   /project/def-kanj241/hvt632/fir_interface/bin/firdash-jupyter-setup
-   ```
+Moving the push to another Fir account (then cancel the old chain with `scancel -n firdash-push` there):
 
-   then stop any running JupyterHub server once (File → Hub Control Panel → Stop My Server). It adds a "Fir dashboard"
-   launcher to your own sessions, keeps the Alliance launchers, never overwrites a `~/.jupyter/jupyter_server_config.py`
-   it did not write, and is undone with `--remove`. Without it this button ends in "404 Not Found".
-2. **Open dashboard** (no setup): the notebook opens; when the kernel shows idle, click **Run all**. The dashboard
-   appears in ~20 s.
+```bash
+ssh-keygen -t ed25519 -N '' -f ~/.ssh/gaig-push -C firdash-push   # on Fir, under the new account
+cat ~/.ssh/gaig-push.pub        # goes into /home/firpush/.ssh/authorized_keys on the VM, after restrict,command="..."
+mkdir -p ~/firdash-push/log && cp /project/def-kanj241/hvt632/fir_interface/deploy/firdash-push.sbatch ~/firdash-push/
+sbatch ~/firdash-push/firdash-push.sbatch
+```
 
-Short links: <https://fir.gaig.ca/direct> (option 1) and <https://fir.gaig.ca/open> (option 2). After the click the
-address bar shows jupyterhub.fir.alliancecan.ca: the dashboard runs there, and Fir JupyterHub cannot be embedded in
-or proxied through another site. fir.gaig.ca is a static page on the gaig VM (nginx, `/var/www/fir-gaig`; short links
-are 302 redirects in `/etc/nginx/sites-available/fir-redirect`); it holds no data.
-(JupyterHub sessions run on compute nodes, so /nearline quotas are not shown: /nearline is mounted on login nodes only.)
+The earlier fir.gaig.ca landing page (JupyterHub "Open dashboard" buttons, `/open`, `/direct`) was retired on
+2026-11-25; `bin/firdash-jupyter-setup` and `jupyter/Fir_dashboard.ipynb` still work inside Fir JupyterHub on their
+own but are no longer linked from the web page.
 
 **Windows double-click:** get `windows/Fir-dashboard.cmd`, put it on the desktop and double-click it. It asks for your Fir
 username once, then each run is one Duo push and the dashboard opens in the browser.

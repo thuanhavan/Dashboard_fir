@@ -89,15 +89,21 @@ def line(xlabels, series, width=620, height=260):
                    f'<text x="{left - 6}" y="{sy(t) + 4:.1f}" class="tick" text-anchor="end">{t}</text>')
     every = max(1, len(xlabels) // 7)
     for i, lab in enumerate(xlabels):
-        if i % every == 0 or i == len(xlabels) - 1:
+        # Regular ticks, plus the last day; a regular tick within 40 px of the last one is dropped so they never overlap.
+        if i == len(xlabels) - 1 or (i % every == 0 and sx(len(xlabels) - 1) - sx(i) >= 40):
             out.append(f'<text x="{sx(i):.1f}" y="{height - 6}" class="tick" text-anchor="middle">{esc(lab)}</text>')
     for name, col, vals in series:
         pts = " ".join(f"{sx(i):.1f},{sy(v):.1f}" for i, v in enumerate(vals))
         out.append(f'<polyline points="{pts}" fill="none" stroke="{col}" stroke-width="2" stroke-linejoin="round"/>')
         out.extend(f'<circle cx="{sx(i):.1f}" cy="{sy(v):.1f}" r="4" fill="{col}" class="dot"/>'
                    for i, v in enumerate(vals) if v)
-        if vals:
-            out.append(f'<text x="{sx(len(vals) - 1) + 8:.1f}" y="{sy(vals[-1]) + 4:.1f}" class="val">{esc(name)} {vals[-1]}</text>')
+    # End labels: one per series at its last value, pushed apart so lines that end close together stay readable.
+    ends = sorted([sy(vals[-1]), name, vals[-1]] for name, _, vals in series if vals)
+    for j in range(1, len(ends)):
+        ends[j][0] = max(ends[j][0], ends[j - 1][0] + 13)
+    lift = max(0, ends[-1][0] - (top + ph)) if ends else 0
+    for y, name, last in ends:
+        out.append(f'<text x="{sx(n) + 8:.1f}" y="{y - lift + 4:.1f}" class="val">{esc(name)} {last}</text>')
     for i, lab in enumerate(xlabels):
         tip = " · ".join(f"{name}: {vals[i]}" for name, _, vals in series)
         out.append(f'<rect x="{sx(i) - pw / n / 2:.1f}" y="{top}" width="{pw / n:.1f}" height="{ph}" class="hover">'

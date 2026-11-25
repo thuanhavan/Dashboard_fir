@@ -1,0 +1,21 @@
+#!/bin/bash
+# receive-fir-dash: forced command for the "firpush" SSH key on the gaig VM.
+# Fir pipes one static snapshot (bin/firdash-html) into this over SSH; it is installed atomically as
+# /var/www/fir-gaig/snapshot/index.html, served at https://fir.gaig.ca/snapshot/ by nginx.
+# The key in /home/firpush/.ssh/authorized_keys is "restrict,command=<this script>", so the key can do
+# nothing else on the VM. Anything that is not a reasonably sized HTML page is rejected.
+set -eu
+DEST=/var/www/fir-gaig/snapshot/index.html
+MAX=20000000
+TMP=$(mktemp "${DEST%/*}/.incoming.XXXXXX")
+trap 'rm -f "$TMP"' EXIT
+head -c "$MAX" > "$TMP"
+size=$(stat -c %s "$TMP")
+if [ "$size" -lt 5000 ] || [ "$size" -ge "$MAX" ] || ! head -c 300 "$TMP" | grep -qi '<!doctype html'; then
+    echo "receive-fir-dash: rejected ($size bytes, not an HTML snapshot)" >&2
+    exit 1
+fi
+chmod 644 "$TMP"
+mv -f "$TMP" "$DEST"
+trap - EXIT
+echo "receive-fir-dash: installed $size bytes at $(date -Is)"
