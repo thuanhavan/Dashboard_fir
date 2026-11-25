@@ -77,20 +77,20 @@ def build_lab(days):
     near_title = "/nearline by user (TiB) · nightly stats" + (f" · login-node copy of {st['asof']}" if st.get("asof") else "")
     grid = "".join([
         section("Storage"),
-        safe("Space quota", lambda: card("Space quota", quota_chart(group_quotas(val(d, "st")), "used", "quota", size))),
-        safe("File-count quota", lambda: card("File-count quota", quota_chart(group_quotas(val(d, "st")), "files", "fquota", count))),
         safe("/project by user (TiB)", lambda: card("/project by user (TiB) · nightly stats, may lag recent moves",
              usage_chart(val(d, "st")["breakdown"], "project", val(d, "st")["groups"], colors, False) + legend(users)
              + stats_lag_note(val(d, "st")["breakdown"], val(d, "st")["quotas"], "project"))),
         safe(near_title, lambda: card(near_title,
              usage_chart(val(d, "st")["breakdown"], "nearline", val(d, "st")["groups"], colors, True) + legend(users, True))),
+        safe("Space quota", lambda: card("Space quota", quota_chart(group_quotas(val(d, "st")), "used", "quota", size))),
+        safe("File-count quota", lambda: card("File-count quota", quota_chart(group_quotas(val(d, "st")), "files", "fquota", count))),
         section("Compute"),
         safe("CPU core-hours per month by member", lambda: card("CPU core-hours per month by member",
              usage_month_chart(val(d, "usage"), "cpu", colors))),
-        safe("Queue wait", lambda: card(f"Queue wait per {'day' if days < 14 else 'week'} · hours · last {days} d",
-             queue_wait_chart(val(d, "waits"), days))),
         safe("GPU-hours per month by member", lambda: card("GPU-hours per month by member",
              usage_month_chart(val(d, "usage"), "gpu", colors))),
+        safe("Queue wait", lambda: card(f"Queue wait per {'day' if days < 14 else 'week'} · hours · last {days} d",
+             queue_wait_chart(val(d, "waits"), days))),
         safe("Fairshare · cluster cores now", lambda: card("Fairshare · cluster cores now",
              fairshare_chart(val(d, "fs")) + '<div style="height:14px"></div>' + nodes_chart(val(d, "nd"))
              + legend([("busy", SERIES[0]), ("idle", GOOD), ("down/drained", OTHER)]))),
