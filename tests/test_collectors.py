@@ -67,5 +67,40 @@ class SreportTests(unittest.TestCase):
             c.run_checked("exit 3")
 
 
+class QueueWaitTests(unittest.TestCase):
+    def test_parse_skips_unstarted_and_garbage(self):
+        got = c.parse_queue_wait((FIX / "sacct_wait.txt").read_text())
+        self.assertEqual(got, [("2026-11-20", 1800.0), ("2026-11-21", 86400.0), ("2026-11-23", 0.0)])
+
+    def test_queue_wait_command(self):
+        calls = []
+        with mock.patch.object(c, "run_checked", lambda cmd, timeout=90: calls.append(cmd) or ""):
+            self.assertEqual(c.queue_wait(["b_cpu", "a_cpu", "b_cpu"], 30), [])
+            self.assertEqual(c.queue_wait([], 30), [])
+        self.assertEqual(calls, ["sacct -a -A a_cpu,b_cpu -S now-30days -X -n -P -o Submit,Start,State"])
+
+    def test_queue_wait_failure_propagates(self):
+        def boom(cmd, timeout=90):
+            raise RuntimeError("sacct failed")
+        with mock.patch.object(c, "run_checked", boom):
+            with self.assertRaises(RuntimeError):
+                c.queue_wait(["a_cpu"], 7)
+
+
+class BreakdownTests(unittest.TestCase):
+    def test_user_breakdown_counts_files(self):
+        stats = {"quota": None, "asof": None, "stats": [
+            {"uid": "alice", "count": 5, "size": 10, "volume": 12, "location": "On disk"},
+            {"uid": "alice", "count": 2, "size": 100, "volume": 0, "location": "On tape"},
+            {"uid": "root", "count": 9, "size": 9, "volume": 9, "location": "On disk"}]}
+        with mock.patch.object(c, "fs_stats", lambda fs, g: stats):
+            self.assertEqual(c.user_breakdown("project", "g"), {"alice": {"disk": 12.0, "tape": 0.0, "files": 5}})
+            self.assertEqual(c.user_breakdown("nearline", "g"), {"alice": {"disk": 0.0, "tape": 100.0, "files": 2}})
+
+    def test_removed_collectors_are_gone(self):
+        for name in ("group_jobs", "filesystems", "arrays", "reservations", "pending_lab"):
+            self.assertFalse(hasattr(c, name), name)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -133,15 +133,16 @@ def group_quotas():
 
 
 def user_breakdown(fs, group):
-    """{user: {"disk": bytes, "tape": bytes}} from the robinhood stats, same rules as diskusage_rbh."""
+    """{user: {"disk": bytes, "tape": bytes, "files": n}} from the robinhood stats, same rules as diskusage_rbh."""
     users = {}
     for e in fs_stats(fs, group)["stats"]:
         loc = e.get("location", "")
         if e.get("uid") == "root" or (loc == "On disk") != (fs == "project"):
             continue
         n = e.get("size", 0) if loc == "On tape" else e.get("volume", 0)
-        d = users.setdefault(e["uid"], {"disk": 0.0, "tape": 0.0})
+        d = users.setdefault(e["uid"], {"disk": 0.0, "tape": 0.0, "files": 0})
         d["tape" if loc == "On tape" else "disk"] += float(n)
+        d["files"] += int(e.get("count", 0))
     return {u: v for u, v in users.items() if v["disk"] + v["tape"] > 0}
 
 
@@ -158,13 +159,6 @@ def fairshare():
 
 def jobs():
     out = run(f"squeue -u {USER} -h -o '%i|%j|%T|%M|%l|%D|%C|%m|%a|%R'")
-    return [l.split("|") for l in out.splitlines() if l.strip()]
-
-
-def group_jobs(accounts):
-    if not accounts:
-        return []
-    out = run(f"squeue -A {','.join(sorted(set(accounts)))} -h -o '%i|%u|%j|%T|%M|%l|%C|%a|%R'")
     return [l.split("|") for l in out.splitlines() if l.strip()]
 
 
@@ -190,60 +184,10 @@ def nodes():
     return out
 
 
-def filesystems():
-    """Whole filesystems (all users): one row per distinct device. /home, /project and /scratch share one Lustre FS."""
-    space, inodes, rows, seen = {}, {}, [], {}
-    for cmd, d in (("df -P -B1 /home /project /scratch /nearline", space), ("df -Pi /home /project /scratch /nearline", inodes)):
-        for line in run(cmd, 30).splitlines()[1:]:
-            p = line.split()
-            if len(p) >= 6 and p[1].isdigit():
-                d[p[5]] = (p[0], int(p[2]) + int(p[3]), int(p[2]))  # used + available, as df's Capacity (excludes reserved)
-    for mnt, (dev, total, used) in space.items():
-        if (dev.rsplit("/", 1)[0], total) in seen:
-            seen[(dev.rsplit("/", 1)[0], total)]["mounts"].append(mnt)
-            continue
-        ftot, fused = inodes.get(mnt, ("", 0, 0))[1:]
-        row = {"mounts": [mnt], "used": float(used), "quota": float(total), "files": float(fused), "fquota": float(ftot)}
-        seen[(dev.rsplit("/", 1)[0], total)] = row
-        rows.append(row)
-    for r in rows:
-        r["label"] = " + ".join(r.pop("mounts")) + (" (disk cache)" if "/nearline" in r.get("label", "") else "")
-        if r["label"] == "/nearline":
-            r["label"] = "/nearline disk cache"
-    return rows
-
-
 def pending_start():
     """Pending jobs with Slurm's expected start time and reason."""
     out = run(f"squeue -u {USER} --start -h -o '%i|%j|%a|%C|%r|%S'")
     return [l.split("|") for l in out.splitlines() if l.strip()]
-
-
-def _ntasks(spec):
-    n = 0
-    for part in spec.split("%")[0].split(","):
-        a, _, b = part.partition("-")
-        n += int(b) - int(a) + 1 if b.isdigit() and a.isdigit() else 1
-    return n
-
-
-def arrays(days=3):
-    """{array id: {"name", "end", counts by state}} for the user's array jobs of the last `days` days."""
-    out = run(f"sacct -u {USER} -S now-{days}days -X -n -P -o JobID,JobName,State,End", 120)
-    arr = {}
-    for line in out.splitlines():
-        p = [f.strip() for f in line.split("|")]
-        if len(p) < 4 or "_" not in p[0]:
-            continue
-        jid, task = p[0].split("_", 1)
-        st = p[2].split()[0]
-        d = arr.setdefault(jid, {"name": p[1], "end": "", "COMPLETED": 0, "RUNNING": 0, "PENDING": 0, "BAD": 0})
-        n = _ntasks(task.strip("[]")) if task.startswith("[") else 1
-        key = st if st in ("COMPLETED", "RUNNING", "PENDING") else "BAD"
-        d[key] += n
-        if p[3] not in ("Unknown", "") and p[3] > d["end"]:
-            d["end"] = p[3]
-    return arr
 
 
 def _secs(t):
@@ -287,39 +231,6 @@ def efficiency(days):
             jobs[jid]["rss"] = max(jobs[jid]["rss"], _mem(p[7]))
     return [dict(j, id=k) for k, j in jobs.items()
             if j["state"] in ("COMPLETED", "TIMEOUT", "OUT_OF_MEMORY") and j["elapsed"] >= 120 and j["cpus"] > 0]
-
-
-def reservations(days=30):
-    """Maintenance / reservations ending in the future and starting within `days` days."""
-    import datetime as dt
-    now = dt.datetime.now()
-    rows = []
-    for block in run("scontrol show reservation -o", 30).splitlines():
-        kv = dict(x.split("=", 1) for x in block.split() if "=" in x)
-        try:
-            s, e = dt.datetime.fromisoformat(kv["StartTime"]), dt.datetime.fromisoformat(kv["EndTime"])
-        except (KeyError, ValueError):
-            continue
-        if e > now and s < now + dt.timedelta(days=days):
-            rows.append([kv.get("ReservationName", ""), kv["StartTime"].replace("T", " "), kv["EndTime"].replace("T", " "),
-                         kv.get("NodeCnt", ""), kv.get("CoreCnt", ""), kv.get("Flags", ""), "active" if s <= now else "upcoming"])
-    return sorted(rows, key=lambda r: r[1])
-
-
-def pending_lab(accounts):
-    """Pending jobs of all members on the given accounts: [jobid, user, name, account, cpus, reason, start, n_tasks]."""
-    if not accounts:
-        return []
-    out = run(f"squeue -A {','.join(sorted(set(accounts)))} -t PD --start -h -o '%i|%u|%j|%a|%C|%r|%S'")
-    rows = []
-    for l in out.splitlines():
-        p = l.split("|")
-        if len(p) < 7:
-            continue
-        task = p[0].split("_", 1)[1] if "_" in p[0] else ""
-        p.append(_ntasks(task.strip("[]")) if task.startswith("[") else 1)
-        rows.append(p)
-    return rows
 
 
 def _month_starts(n, today=None):
@@ -383,3 +294,27 @@ def usage_by_month(accounts, months=3, today=None):
             for u, h in parse_sreport(f.result(), tres).items():
                 out[key].setdefault(u, {"cpu": 0.0, "gpu": 0.0})[kind] += h
     return out
+
+
+def parse_queue_wait(text):
+    """[(start date 'YYYY-MM-DD', wait seconds)] from sacct rows 'Submit|Start|State'. Jobs that have not
+    started (Unknown/None start, PENDING) and unparsable lines are skipped; a negative wait is clamped to 0."""
+    out = []
+    for line in text.splitlines():
+        p = [f.strip() for f in line.split("|")]
+        if len(p) < 3 or p[1] in ("Unknown", "None", "") or p[2].startswith("PENDING"):
+            continue
+        try:
+            sub, st = dt.datetime.fromisoformat(p[0]), dt.datetime.fromisoformat(p[1])
+        except ValueError:
+            continue
+        out.append((st.date().isoformat(), max(0.0, (st - sub).total_seconds())))
+    return out
+
+
+def queue_wait(accounts, days):
+    """Queue wait of every job on the accounts that was active in the last `days` days (sacct, ~7 s for 30 d).
+    A failing or timed-out sacct raises RuntimeError (run_checked) so it is never mistaken for 'no jobs'."""
+    if not accounts:
+        return []
+    return parse_queue_wait(run_checked(f"sacct -a -A {','.join(sorted(set(accounts)))} -S now-{days}days -X -n -P -o Submit,Start,State", 180))
