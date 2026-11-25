@@ -3,19 +3,14 @@ from . import cache
 from . import collectors as c
 from .cache import CACHE_TTL, STORAGE_TTL, cached
 from .charts import count, size
-from .panels import (BAD_STATES, card, efficiency_card, fold, gather, jobs_per_day, kpi, my_share_chart, ok,
-                     pending_table, problems_table, quota_chart, quota_tile, safe, val)
+from .panels import (EMPTY_ST, card, efficiency_card, fold, gather, jobs_per_day, kpi, my_share_chart, ok, pct,
+                     pending_table, problems, problems_table, quota_chart, quota_tile, safe, val)
 
-EMPTY_ST = {"groups": [], "quotas": [], "breakdown": {}, "asof": None}
 SCRATCH_NOTE = "files unused for 60 days are purged"
 
 
 def my_quotas(st):
     return [q for q in st["quotas"] if q["label"].startswith(c.USER + " ")]
-
-
-def problems(hist):
-    return [r for r in hist if len(r) > 2 and r[2].split()[0] in BAD_STATES]
 
 
 def build_me(days):
@@ -32,25 +27,33 @@ def build_me(days):
     running = [r for r in jb if len(r) > 2 and r[2] == "RUNNING"] if jb is not None else []
     pending = [r for r in jb if len(r) > 2 and r[2] == "PENDING"] if jb is not None else []
 
-    empty = {"disk": 0.0, "tape": 0.0}
-    my_proj = sum(us.get(c.USER, empty)["disk"] + us.get(c.USER, empty)["tape"]
-                  for (fs_, _), us in st["breakdown"].items() if fs_ == "project")
-    proj_quota = sum(q["quota"] for q in st["quotas"] if q["label"].endswith(" /project") and not q["label"].startswith(c.USER + " "))
+    shares = []
+    for g in st["groups"]:
+        q = next((q for q in st["quotas"] if q["label"] == f"{g} /project"), None)
+        us = st["breakdown"].get(("project", g))
+        if q and us is not None:
+            used = us.get(c.USER, {"disk": 0.0, "tape": 0.0})
+            used = used["disk"] + used["tape"]
+            shares.append((100 * used / max(q["quota"], 1), g, used))
+    if shares:
+        share, g, used = max(shares)
+        proj = kpi("▤", "My /project", f"{g} · {share:.2f}% of the group quota", size(used), "", share)
+    else:
+        proj = kpi("▤", "My /project", "no data", "—")
+    bad = problems(hist) if hist is not None else None
     home = next((q for q in mine if q["label"].endswith(" /home")), None)
     scratch = next((q for q in mine if q["label"].endswith(" /scratch")), None)
     k = [quota_tile(home, "/home") if home else kpi("▤", "/home", "no data", "—"),
          quota_tile(scratch, "/scratch", SCRATCH_NOTE) if scratch else kpi("▤", "/scratch", f"no data · {SCRATCH_NOTE}", "—"),
-         kpi("▤", "My /project", f"{100 * my_proj / max(proj_quota, 1):.2f}% of the group quota" if proj_quota else "no data",
-             size(my_proj) if st["breakdown"] else "—"),
+         proj,
          kpi("▶", "My jobs", "running · pending", f"{len(running)} · {len(pending)}" if jb is not None else "—", "good" if running else ""),
-         kpi("✗", "My problem jobs", f"last {days} d", len(problems(hist)) if hist is not None else "—",
-             "crit" if hist and problems(hist) else "")]
+         kpi("✗", "My problem jobs", f"last {days} d", len(bad) if bad is not None else "—", "crit" if bad else "")]
     alerts = [f"{q['label']} {name} {p:.0f}%" for q in mine
-              for name, p in (("space", 100 * q["used"] / max(q["quota"], 1)), ("files", 100 * q["files"] / max(q["fquota"], 1))) if p >= 95]
+              for name, p in (("space", pct(q)), ("files", pct(q, "files", "fquota"))) if p >= 95]
 
     def problem_fold():
-        bad = problems(val(d, "hist"))
-        return fold(f"Problem jobs, last {days} d ({len(bad)})", problems_table(bad), open_=True)
+        rows = problems(val(d, "hist"))
+        return fold(f"Problem jobs, last {days} d ({len(rows)})", problems_table(rows), open_=True)
 
     grid = "".join([
         safe("My /home and /scratch", lambda: card("My /home and /scratch",

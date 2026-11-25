@@ -3,11 +3,10 @@ from . import collectors as c
 from . import cache
 from .cache import CACHE_TTL, STORAGE_TTL, cached
 from .charts import GOOD, OTHER, SERIES, count, legend, size
-from .panels import (BAD_STATES, card, extend_colors, fairshare_chart, fold, gather, hours_text, jobs_per_day, kpi,
-                     member_chart, month_label, nodes_chart, ok, pct, problems_table, quota_chart, queue_wait_chart,
+from .panels import (EMPTY_ST, card, extend_colors, fairshare_chart, fold, gather, hours_text, jobs_per_day, kpi,
+                     member_chart, month_label, nodes_chart, ok, pct, problems, problems_table, quota_chart, queue_wait_chart,
                      in_window, safe, usage_chart, usage_month_chart, user_colors, val)
 
-EMPTY_ST = {"groups": [], "quotas": [], "breakdown": {}, "asof": None}
 
 
 def group_quotas(st):
@@ -73,7 +72,7 @@ def build_lab(days):
               for name, p in (("space", pct(q)), ("files", pct(q, "files", "fquota"))) if p >= 95]
 
     def problem_fold():
-        bad = [r for r in val(d, "hist") if len(r) > 2 and r[2].split()[0] in BAD_STATES]
+        bad = problems(val(d, "hist"))
         return fold(f"Problem jobs, all members, last {days} d ({len(bad)})", problems_table(bad, with_user=True))
 
     near_title = "/nearline by user (TiB)" + (f" · login-node copy of {st['asof']}" if st.get("asof") else "")

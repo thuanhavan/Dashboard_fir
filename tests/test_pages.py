@@ -10,16 +10,16 @@ ST = {"groups": ["def-a", "def-b"],
                  {"label": "def-a /nearline", "used": 19e12, "quota": 279e12, "files": 846, "fquota": 5000},
                  {"label": "me /home", "used": 5e9, "quota": 50e9, "files": 56e3, "fquota": 500e3},
                  {"label": "me /scratch", "used": 940e9, "quota": 19e12, "files": 9236, "fquota": 1e6}],
-      "breakdown": {("project", "def-a"): {"me": {"disk": 20e9, "tape": 0.0, "files": 659}, "x": {"disk": 27e12, "tape": 0.0, "files": 100}},
-                    ("project", "def-b"): {"x": {"disk": 16e12, "tape": 0.0, "files": 10}},
-                    ("nearline", "def-a"): {"me": {"disk": 0.0, "tape": 22e12, "files": 24}, "x": {"disk": 0.0, "tape": 65e12, "files": 99}}},
+      "breakdown": {("project", "def-a"): {"me": {"disk": 20e9, "tape": 0.0, "files": 659}, "otheruser": {"disk": 27e12, "tape": 0.0, "files": 100}},
+                    ("project", "def-b"): {"otheruser": {"disk": 16e12, "tape": 0.0, "files": 10}},
+                    ("nearline", "def-a"): {"me": {"disk": 0.0, "tape": 22e12, "files": 24}, "otheruser": {"disk": 0.0, "tape": 65e12, "files": 99}}},
       "asof": "2026-11-25"}
 T = dt.date.today()
 FS = [["def-a_cpu", "0.5", "0.6", "0.15", "0.3"], ["def-a_gpu", "0.5", "0.1", "0.41", "4.0"]]
 ND = {"Regular CPU": [150000, 14000, 7000, 171000, 1000]}
-HIST = [["1", "j", "COMPLETED", "00:10:00", "01:00:00", "4G", "0:0", "def-a_cpu", f"{T.isoformat()}T01:00:00", "x"],
+HIST = [["1", "j", "COMPLETED", "00:10:00", "01:00:00", "4G", "0:0", "def-a_cpu", f"{T.isoformat()}T01:00:00", "otheruser"],
         ["2", "j", "TIMEOUT", "01:00:00", "01:00:00", "4G", "0:0", "def-a_cpu", f"{T.isoformat()}T02:00:00", "me"]]
-USAGE = {"2026-10": {"x": {"cpu": 40000.0, "gpu": 0.0}}, "2026-11": {"x": {"cpu": 50000.0, "gpu": 24.0}, "me": {"cpu": 3600.0, "gpu": 0.0}}}
+USAGE = {"2026-10": {"otheruser": {"cpu": 40000.0, "gpu": 0.0}}, "2026-11": {"otheruser": {"cpu": 50000.0, "gpu": 24.0}, "me": {"cpu": 3600.0, "gpu": 0.0}}}
 WAITS = [(T.isoformat(), 1800.0), ((T - dt.timedelta(days=1)).isoformat(), 7200.0)]
 
 
@@ -64,7 +64,7 @@ class LabPageTests(unittest.TestCase):
         self.assertIn("53,600", kpis)                                 # November core-hours
         self.assertIn("2.0 h", kpis)                                  # median of [1800 s, 7200 s] picks index 1 -> 7200 s
         self.assertEqual(alerts, [])
-        self.assertIn("x", colors)
+        self.assertIn("otheruser", colors)
 
     def test_lab_survives_a_failing_collector(self):
         kpis, grid, alerts, colors = self.run_lab(usage_by_month=boom(RuntimeError("sreport down")))
@@ -141,8 +141,8 @@ class MePageTests(unittest.TestCase):
             self.assertIn(title, grid, title)
         self.assertIn("raise --time", grid)
         self.assertIn("<details open>", grid)
-        self.assertNotIn(">x<", grid)                                  # no other member's name
-        self.assertNotIn("x:", grid)
+        self.assertNotIn("otheruser", kpis + grid)                     # no other member's name
+        self.assertIn("def-a · 0.02% of the group quota", kpis)
         self.assertEqual(alerts, [])
 
     def test_me_survives_failures(self):
@@ -151,8 +151,15 @@ class MePageTests(unittest.TestCase):
         self.assertEqual(kpis.count('class="kpi"'), 5)
         kpis, grid, alerts, colors = self.run_me(recent=boom(RuntimeError("sacct down")))
         self.assertIn("no data · RuntimeError: sacct down", grid)     # problems fold shows the reason, not "(0)"
-        self.assertIn("My problem jobs", kpis)
-        self.assertIn("—", kpis)
+        self.assertRegex(kpis, r"My problem jobs.*?<b>—</b>")
+        short = MYHIST + [["3", "x", "", "", "", "", "", "", "", ""], ["4", "x"]]
+        kpis, grid, alerts, colors = self.run_me(recent=lambda d, a=None: short)
+        self.assertRegex(kpis, r"My problem jobs.*?<b>1</b>")
+        kpis, grid, alerts, colors = self.run_me(jobs=boom(RuntimeError("squeue down")))
+        self.assertRegex(kpis, r"My jobs.*?<b>—</b>")
+        kpis, grid, alerts, colors = self.run_me(pending_start=boom(RuntimeError("sprio down")))
+        self.assertIn("no data · RuntimeError: sprio down", grid)
+        self.assertIn("Pending jobs", grid)
 
     def test_me_storage_failure(self):
         kpis, grid, alerts, colors = self.run_me(storage=boom(OSError("lfs hung")))

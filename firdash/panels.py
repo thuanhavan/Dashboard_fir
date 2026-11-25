@@ -6,6 +6,12 @@ from . import collectors as c
 from .charts import CRIT, GOOD, OTHER, SERIES, bars, columns, count, esc, legend, line, nice_step, size, status_fill
 
 BAD_STATES = ("FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "CANCELLED")
+EMPTY_ST = {"groups": [], "quotas": [], "breakdown": {}, "asof": None}
+
+
+def problems(hist):
+    """recent() rows whose state is a problem; rows too short for problems_table are skipped."""
+    return [r for r in hist if len(r) > 9 and r[2].partition(" ")[0] in BAD_STATES]
 REASONS = {"Priority": "waiting for higher-priority jobs", "Resources": "next in line, waiting for free nodes",
            "Dependency": "waits for another job", "DependencyNeverSatisfied": "dependency failed: will never start",
            "AssocGrpCPULimit": "account core limit reached", "QOSMaxJobsPerUserLimit": "per-user job limit",
@@ -263,7 +269,7 @@ def jobs_per_day(hist, days):
             continue
         if r[2].startswith("COMPLETED"):
             good[i] += 1
-        elif r[2].split()[0] in BAD_STATES:
+        elif r[2].partition(" ")[0] in BAD_STATES:
             bad[i] += 1
     labels = [d.strftime("%b %d") for d in dates]
     return line(labels, [("completed", SERIES[0], good), ("problems", CRIT, bad)]) + legend([("completed", SERIES[0]), ("problems", CRIT)])
@@ -273,7 +279,7 @@ def member_chart(hist):
     """Jobs by member in the window: completed vs problems."""
     by_user = {}
     for r in hist:
-        st_ = r[2].split()[0]
+        st_ = r[2].partition(" ")[0]
         d = by_user.setdefault(r[9] if len(r) > 9 and r[9] else c.USER, [0, 0])
         if st_ == "COMPLETED":
             d[0] += 1
@@ -294,7 +300,7 @@ def problems_table(bad, with_user=False):
     head = ["JobID", "Name", "State", "Exit", "Elapsed / limit", "What to do"] + (["User"] if with_user else [])
     rows = []
     for r in bad[::-1][:300]:
-        st_ = r[2].split()[0]
+        st_ = r[2].partition(" ")[0]
         rows.append([r[0], r[1], st_.replace("_", " ").lower(), r[6], f"{r[3]} / {r[4]}", HINTS.get(st_, "")] + ([r[9]] if with_user else []))
     return table(head, rows)
 
