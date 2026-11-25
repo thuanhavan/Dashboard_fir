@@ -70,14 +70,15 @@ class SreportTests(unittest.TestCase):
 class QueueWaitTests(unittest.TestCase):
     def test_parse_skips_unstarted_and_garbage(self):
         got = c.parse_queue_wait((FIX / "sacct_wait.txt").read_text())
-        self.assertEqual(got, [("2026-11-20", 1800.0), ("2026-11-21", 86400.0), ("2026-11-23", 0.0)])
+        self.assertEqual(got, [("2026-11-20", 1800.0), ("2026-11-21", 86400.0), ("2026-11-23", 0.0),
+                               ("2026-11-24", 0.0), ("2026-11-24", 1800.0)])
 
     def test_queue_wait_command(self):
         calls = []
-        with mock.patch.object(c, "run_checked", lambda cmd, timeout=90: calls.append(cmd) or ""):
+        with mock.patch.object(c, "run_checked", lambda cmd, timeout=90: calls.append((cmd, timeout)) or ""):
             self.assertEqual(c.queue_wait(["b_cpu", "a_cpu", "b_cpu"], 30), [])
             self.assertEqual(c.queue_wait([], 30), [])
-        self.assertEqual(calls, ["sacct -a -A a_cpu,b_cpu -S now-30days -X -n -P -o Submit,Start,State"])
+        self.assertEqual(calls, [("SLURM_TIME_FORMAT=standard sacct -a -A a_cpu,b_cpu -S now-30days -X -n -P -o Submit,Start,State", 180)])
 
     def test_queue_wait_failure_propagates(self):
         def boom(cmd, timeout=90):

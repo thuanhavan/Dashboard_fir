@@ -313,8 +313,9 @@ def parse_queue_wait(text):
 
 
 def queue_wait(accounts, days):
-    """Queue wait of every job on the accounts that was active in the last `days` days (sacct, ~7 s for 30 d).
+    """[(start date, wait seconds)] for jobs on the accounts. The date is the job's start date; pending jobs are
+    excluded. sacct -S also includes jobs that started before the window, so callers bucket by start date.
     A failing or timed-out sacct raises RuntimeError (run_checked) so it is never mistaken for 'no jobs'."""
     if not accounts:
         return []
-    return parse_queue_wait(run_checked(f"sacct -a -A {','.join(sorted(set(accounts)))} -S now-{days}days -X -n -P -o Submit,Start,State", 180))
+    return parse_queue_wait(run_checked(f"SLURM_TIME_FORMAT=standard sacct -a -A {','.join(sorted(set(accounts)))} -S now-{days}days -X -n -P -o Submit,Start,State", 180))
