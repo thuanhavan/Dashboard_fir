@@ -2,8 +2,6 @@ __pycache__/
 *.pyc
 *.html
 
-# third-party banner image (internal use only, not for the public repo) and local screenshots
-docs/h100.jpg
-docs/data_anim.gif
+# local screenshots
 docs/screenshot_feedback.png
 Screenshot*.png

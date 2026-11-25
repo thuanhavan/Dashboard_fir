@@ -11,14 +11,10 @@ Shows:
 - Storage quotas (space + file count) for every def-/rrg- group you belong to, plus /home and /scratch
 - /project and /nearline usage per user (tape-only hatched)
 - Cluster cores busy/idle by node type, and fairshare per account
-- Job tiles; queue and problem-job tables are collapsed
+- Job tiles; the Lab problem-job table is collapsed, the Me pending and problem tables are open
 - Pending jobs with Slurm's expected start time and the reason in plain words
 - Job efficiency: peak memory vs requested and CPU efficiency per job name, idle core-hours
 - CPU core-hours and GPU-hours per member per calendar month (sreport), queue wait per week (median and 90th percentile)
-
-Compute-page banner `docs/h100.jpg`: NVIDIA H100 illustration from
-[tatacommunications.com](https://www.tatacommunications.com/knowledge-base/cloud-ai/nvidia-h100-gpu), third-party
-image kept for internal lab use only; replace it before sharing the dashboard publicly.
 
 Data comes from `diskusage_report`, `lfs quota` (per-group project ID; `df` misreports /nearline file counts), the nightly robinhood stats behind `diskusage_rbh` (`/project/.stats`, `/nearline/.stats`), `sinfo`, `squeue`, `sshare`, `sacct` and `sreport`. Storage refreshes every 10 min, everything else every 60 s.
 

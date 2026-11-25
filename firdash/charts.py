@@ -132,7 +132,7 @@ def columns(xlabels, series, width=620, height=260, max_bw=28):
     out = [f'<svg viewBox="0 0 {width} {height}" width="100%" role="img">']
     for t in range(0, ymax + 1, step):
         out.append(f'<line x1="{left}" y1="{sy(t):.1f}" x2="{left + pw}" y2="{sy(t):.1f}" class="grid"/>'
-                   f'<text x="{left - 6}" y="{sy(t) + 4:.1f}" class="tick" text-anchor="end">{t}</text>')
+                   f'<text x="{left - 6}" y="{sy(t) + 4:.1f}" class="tick" text-anchor="end">{t:,}</text>')
     every = max(1, len(xlabels) // 7)
     for i, lab in enumerate(xlabels):
         cx = left + slot * (i + 0.5)

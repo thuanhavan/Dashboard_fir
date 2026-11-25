@@ -14,6 +14,8 @@ REASONS = {"Priority": "waiting for higher-priority jobs", "Resources": "next in
 HINTS = {"TIMEOUT": "ran out of time: raise --time", "OUT_OF_MEMORY": "ran out of memory: raise --mem",
          "FAILED": "exit code ≠ 0: check the job's output file", "NODE_FAIL": "node failed: resubmit",
          "CANCELLED": "cancelled by you or an admin"}
+JUPYTER_JOB = "spawner-jupyterhub"
+JUPYTER_HINT = "JupyterHub session reached its time limit (normal)"
 
 
 # ---- robustness ----------------------------------------------------------------------------------------------
@@ -102,21 +104,25 @@ def month_label(m):
 
 
 def user_colors(breakdown):
-    """Member colours by total storage, the current user first."""
+    """Member colours by total storage, the current user first; at most len(SERIES) members, so no colour repeats.
+    Members without an entry are drawn as "other"."""
     totals = {}
     for users in breakdown.values():
         for u, v in users.items():
             totals[u] = totals.get(u, 0) + v["disk"] + v["tape"]
     order = [c.USER] + sorted((u for u in totals if u != c.USER), key=lambda u: -totals[u])
-    return {u: SERIES[i % len(SERIES)] for i, u in enumerate(order)}
+    return {u: SERIES[i] for i, u in enumerate(order[:len(SERIES)])}
 
 
 def extend_colors(colors, names):
-    """Same mapping plus a colour for every new name (members seen in jobs or usage but not in storage)."""
+    """Same mapping plus an unused colour for new names (members seen in jobs or usage but not in storage),
+    while fewer than len(SERIES) members have one."""
     out = dict(colors)
     for u in names:
+        if len(out) >= len(SERIES):
+            break
         if u not in out:
-            out[u] = SERIES[len(out) % len(SERIES)]
+            out[u] = next(col for col in SERIES if col not in out.values())
     return out
 
 
@@ -214,8 +220,8 @@ def usage_month_chart(usage, kind, colors):
     order = [u for u in sorted(totals, key=lambda u: -totals[u]) if round(totals[u]) > 0]
     if not order:
         return '<p class="muted">No usage recorded in this period.</p>'
-    top, rest = order[:len(SERIES)], order[len(SERIES):]
-    series = [(u, colors.get(u, OTHER), [round(usage[m].get(u, {}).get(kind, 0.0)) for m in months])
+    top, rest = [u for u in order if u in colors], [u for u in order if u not in colors]
+    series = [(u, colors[u], [round(usage[m].get(u, {}).get(kind, 0.0)) for m in months])
               for u in top]
     if rest:
         series.append(("other", OTHER, [round(sum(usage[m].get(u, {}).get(kind, 0.0) for u in rest)) for m in months]))
@@ -301,7 +307,7 @@ def problems_table(bad, with_user=False):
     rows = []
     for r in bad[::-1][:300]:
         st_ = r[2].partition(" ")[0]
-        rows.append([r[0], r[1], st_.replace("_", " ").lower(), r[6], f"{r[3]} / {r[4]}", HINTS.get(st_, "")] + ([r[9]] if with_user else []))
+        rows.append([r[0], r[1], st_.replace("_", " ").lower(), r[6], f"{r[3]} / {r[4]}", JUPYTER_HINT if r[1] == JUPYTER_JOB else HINTS.get(st_, "")] + ([r[9]] if with_user else []))
     return table(head, rows)
 
 

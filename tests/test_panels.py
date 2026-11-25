@@ -13,7 +13,9 @@ class ChartTests(unittest.TestCase):
         self.assertIn("Oct 2026", html)
         self.assertIn("Nov 2026", html)
         self.assertIn("a: 20", html)
-        self.assertIn("b: 0", html)       # b has no November usage, series still has a value
+        self.assertIn("other: 5", html)   # b has no colour, so it is folded into "other"
+        self.assertIn("other: 0", html)   # ... which still has a November value
+        self.assertNotIn("b:", html)
         self.assertEqual(p.usage_month_chart({}, "gpu", {}), '<p class="muted">No usage recorded in this period.</p>')
 
     def test_queue_wait_chart_buckets_weeks(self):
@@ -97,7 +99,22 @@ class SafetyTests(unittest.TestCase):
     def test_extend_colors_keeps_existing(self):
         got = p.extend_colors({"a": SERIES[3]}, ["a", "b"])
         self.assertEqual(got["a"], SERIES[3])
-        self.assertEqual(got["b"], SERIES[1])
+        self.assertEqual(got["b"], SERIES[0])                 # first unused colour
+        full = p.extend_colors({f"u{i}": col for i, col in enumerate(SERIES)}, ["new"])
+        self.assertNotIn("new", full)                          # capped at len(SERIES)
+
+    def test_user_colors_caps_at_series_length(self):
+        bd = {("project", "def-a"): {f"u{i}": {"disk": float(i + 1), "tape": 0.0, "files": 1} for i in range(11)}}
+        bd[("project", "def-a")][p.c.USER] = {"disk": 0.5, "tape": 0.0, "files": 1}
+        got = p.user_colors(bd)
+        self.assertEqual(len(got), 8)
+        self.assertEqual(list(got)[0], p.c.USER)
+        self.assertEqual(len(set(got.values())), 8)
+        self.assertEqual(list(got)[1], "u10")                   # then by total storage
+
+    def test_jupyter_hint(self):
+        row = ["1", "spawner-jupyterhub", "TIMEOUT", "01:00:00", "01:00:00", "4G", "0:0", "a", "2026-11-25T01:00:00", "me"]
+        self.assertIn("JupyterHub session reached its time limit", p.problems_table([row]))
 
 
 class CacheTests(unittest.TestCase):
