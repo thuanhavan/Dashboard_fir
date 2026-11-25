@@ -2,7 +2,7 @@ import datetime as dt
 import unittest
 from unittest import mock
 
-from firdash import cache, collectors as c, lab, panels
+from firdash import cache, collectors as c, lab, me, panels
 
 ST = {"groups": ["def-a", "def-b"],
       "quotas": [{"label": "def-a /project", "used": 86e12, "quota": 100e12, "files": 1.29e6, "fquota": 2e6},
@@ -100,6 +100,70 @@ class LabPageTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertIn(("wait", 30, ("def-a_cpu", "def-a_gpu")), cache._ttl)
         self.assertTrue(("usage", ("def-a_cpu", "def-a_gpu")) in cache._ttl)
+
+
+JB = [["10", "run1", "RUNNING", "00:05:00", "01:00:00", "1", "4", "4G", "def-a_cpu", "fc1"],
+      ["11", "pend1", "PENDING", "00:00:00", "01:00:00", "1", "4", "4G", "def-a_cpu", "(Priority)"]]
+PEND = [["11", "pend1", "def-a_cpu", "4", "Priority", f"{(T + dt.timedelta(days=1)).isoformat()}T09:00:00"]]
+MYHIST = [["2", "j", "TIMEOUT", "01:00:00", "01:00:00", "4G", "0:0", "def-a_cpu", f"{T.isoformat()}T02:00:00", "me"]]
+EFF = [{"id": "2", "name": "j", "state": "TIMEOUT", "elapsed": 3600.0, "cpu": 1800.0, "cpus": 1, "req": 4 * 2**30, "rss": 2**30, "account": "def-a_cpu"}]
+
+
+def fake_me(**over):
+    cache._ttl.clear()
+    pats = {"storage": lambda: ST, "jobs": lambda: JB, "recent": lambda d, a=None: MYHIST,
+            "pending_start": lambda: PEND, "efficiency": lambda d: EFF}
+    pats.update(over)
+    ms = [mock.patch.object(cache, "storage", pats.pop("storage")), mock.patch.object(c, "USER", "me")]
+    ms += [mock.patch.object(c, k, v) for k, v in pats.items()]
+    return ms
+
+
+class MePageTests(unittest.TestCase):
+    def run_me(self, **over):
+        self.addCleanup(cache._ttl.clear)
+        ps = fake_me(**over)
+        for p in ps:
+            p.start()
+        try:
+            return me.build_me(7)
+        finally:
+            for p in ps:
+                p.stop()
+
+    def test_me_kpis_and_cards(self):
+        kpis, grid, alerts, colors = self.run_me()
+        self.assertEqual(kpis.count('class="kpi"'), 5)
+        self.assertIn("files unused for 60 days are purged", kpis)
+        self.assertIn("1 · 1", kpis)                                   # running · pending
+        for title in ("My /home and /scratch", "My share of group storage", "My jobs finished per day · last 7 d",
+                      "My job efficiency · last 7 d · 1 jobs", "Pending jobs (1)", "Problem jobs, last 7 d (1)"):
+            self.assertIn(title, grid, title)
+        self.assertIn("raise --time", grid)
+        self.assertIn("<details open>", grid)
+        self.assertNotIn(">x<", grid)                                  # no other member's name
+        self.assertNotIn("x:", grid)
+        self.assertEqual(alerts, [])
+
+    def test_me_survives_failures(self):
+        kpis, grid, alerts, colors = self.run_me(efficiency=boom(RuntimeError("sacct slow")))
+        self.assertIn("no data · RuntimeError: sacct slow", grid)
+        self.assertEqual(kpis.count('class="kpi"'), 5)
+        kpis, grid, alerts, colors = self.run_me(recent=boom(RuntimeError("sacct down")))
+        self.assertIn("no data · RuntimeError: sacct down", grid)     # problems fold shows the reason, not "(0)"
+        self.assertIn("My problem jobs", kpis)
+        self.assertIn("—", kpis)
+
+    def test_me_storage_failure(self):
+        kpis, grid, alerts, colors = self.run_me(storage=boom(OSError("lfs hung")))
+        self.assertIn("no data · OSError: lfs hung", grid)
+        self.assertEqual(kpis.count('class="kpi"'), 5)
+        self.assertEqual(alerts, [])
+
+    def test_me_alert_on_own_quota(self):
+        st = dict(ST, quotas=ST["quotas"][:3] + [dict(ST["quotas"][3], used=48e9)] + ST["quotas"][4:])
+        kpis, grid, alerts, colors = self.run_me(storage=lambda: st)
+        self.assertEqual(alerts, ["me /home space 96%"])
 
 
 if __name__ == "__main__":
