@@ -67,6 +67,12 @@ class SreportTests(unittest.TestCase):
             c.run_checked("exit 3")
 
 
+class FairshareTests(unittest.TestCase):
+    def test_failure_propagates(self):
+        with mock.patch.object(c, "run_checked", side_effect=RuntimeError("sshare failed")):
+            self.assertRaises(RuntimeError, c.fairshare)
+
+
 class QueueWaitTests(unittest.TestCase):
     def test_parse_skips_unstarted_and_garbage(self):
         got = c.parse_queue_wait((FIX / "sacct_wait.txt").read_text())

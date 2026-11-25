@@ -21,6 +21,12 @@ USAGE = {"2026-10": {"x": {"cpu": 40000.0, "gpu": 0.0}}, "2026-11": {"x": {"cpu"
 WAITS = [("2026-11-25", 1800.0), ("2026-11-24", 7200.0)]
 
 
+def boom(exc):
+    def f(*a, **k):
+        raise exc
+    return f
+
+
 def fake_lab(**over):
     """Patch every collector the Lab page uses; keyword overrides replace one of them (e.g. usage=lambda *a: 1/0)."""
     cache._ttl.clear()
@@ -34,6 +40,7 @@ def fake_lab(**over):
 
 class LabPageTests(unittest.TestCase):
     def run_lab(self, **over):
+        self.addCleanup(cache._ttl.clear)
         ps = fake_lab(**over)
         for p in ps:
             p.start()
@@ -58,15 +65,27 @@ class LabPageTests(unittest.TestCase):
         self.assertIn("x", colors)
 
     def test_lab_survives_a_failing_collector(self):
-        kpis, grid, alerts, colors = self.run_lab(usage_by_month=lambda a: (_ for _ in ()).throw(RuntimeError("sreport down")))
+        kpis, grid, alerts, colors = self.run_lab(usage_by_month=boom(RuntimeError("sreport down")))
         self.assertIn("no data · RuntimeError: sreport down", grid)
         self.assertIn("Space quota", grid)
         self.assertEqual(kpis.count('class="kpi"'), 6)
+        self.assertEqual(kpis.count("<b>—</b>"), 2)               # CPU and GPU tiles
+
+    def test_lab_survives_fairshare_failure(self):
+        calls = []
+        rec = lambda *a: calls.append(a) or []
+        kpis, grid, alerts, colors = self.run_lab(fairshare=boom(RuntimeError("sshare down")), recent=rec,
+                                                  usage_by_month=rec, queue_wait=rec)
+        self.assertEqual(calls, [])
+        self.assertGreaterEqual(grid.count("no data · RuntimeError: no Slurm accounts"), 3)
+        self.assertEqual(kpis.count("<b>—</b>"), 3)               # CPU, GPU, queue wait
 
     def test_lab_survives_storage_failure(self):
-        kpis, grid, alerts, colors = self.run_lab(storage=lambda: (_ for _ in ()).throw(OSError("lfs hung")))
+        kpis, grid, alerts, colors = self.run_lab(storage=boom(OSError("lfs hung")))
         self.assertIn("no data · OSError: lfs hung", grid)
         self.assertIn("CPU core-hours per month by member", grid)
+        self.assertEqual(alerts, [])
+        self.assertIn("no data", kpis.split("/project space")[1].split("</div></div>")[0])
 
     def test_alert_at_95_percent(self):
         st = dict(ST, quotas=[dict(ST["quotas"][0], used=96e12)] + ST["quotas"][1:])
@@ -77,8 +96,8 @@ class LabPageTests(unittest.TestCase):
         calls = []
         kpis, grid, alerts, colors = self.run_lab(queue_wait=lambda a, d: calls.append(1) or WAITS)
         self.assertEqual(len(calls), 1)
-        self.assertIn(("wait", 30), cache._ttl)
-        self.assertTrue(any(k == "usage" for k in cache._ttl))
+        self.assertIn(("wait", 30, ("def-a_cpu", "def-a_gpu")), cache._ttl)
+        self.assertTrue(("usage", ("def-a_cpu", "def-a_gpu")) in cache._ttl)
 
 
 if __name__ == "__main__":

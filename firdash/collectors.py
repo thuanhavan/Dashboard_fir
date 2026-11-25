@@ -153,7 +153,7 @@ def stats_asof():
 
 
 def fairshare():
-    out = run("sshare -U -n -P -o Account,NormShares,EffectvUsage,FairShare,LevelFS")
+    out = run_checked("sshare -U -n -P -o Account,NormShares,EffectvUsage,FairShare,LevelFS")
     return [l.split("|") for l in out.splitlines() if l.strip()]
 
 

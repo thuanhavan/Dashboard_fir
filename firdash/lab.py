@@ -5,7 +5,7 @@ from .cache import CACHE_TTL, STORAGE_TTL, cached
 from .charts import GOOD, OTHER, SERIES, count, legend, size
 from .panels import (BAD_STATES, card, extend_colors, fairshare_chart, fold, gather, hours_text, jobs_per_day, kpi,
                      member_chart, month_label, nodes_chart, ok, pct, problems_table, quota_chart, queue_wait_chart,
-                     safe, usage_chart, usage_month_chart, user_colors, val)
+                     in_window, safe, usage_chart, usage_month_chart, user_colors, val)
 
 EMPTY_ST = {"groups": [], "quotas": [], "breakdown": {}, "asof": None}
 
@@ -30,20 +30,24 @@ def median(xs):
 
 def build_lab(days):
     """Returns (kpi_html, grid_html, alerts, colors)."""
-    d = gather({"st": lambda: cache.storage(),   # looked up at call time so tests can patch cache.storage
-                "fs": lambda: cached("fairshare", CACHE_TTL, c.fairshare),
-                "nd": lambda: cached("nodes", CACHE_TTL, c.nodes)})
+    d = gather({"fs": lambda: cached("fairshare", CACHE_TTL, c.fairshare)})
     accounts = [r[0] for r in (ok(d, "fs") or [])]
-    # Usage and queue wait change slowly and cost a slurmdbd query each: cache them with the storage TTL (10 min).
-    d.update(gather({"hist": lambda: cached(("lab-hist", days), CACHE_TTL, c.recent, days, accounts),
-                     "usage": lambda: cached("usage", STORAGE_TTL, c.usage_by_month, accounts),
-                     "waits": lambda: cached(("wait", days), STORAGE_TTL, c.queue_wait, accounts, days)}))
+    accts = tuple(sorted(accounts))
+    tasks = {"st": lambda: cache.storage(),   # looked up at call time so tests can patch cache.storage
+             "nd": lambda: cached("nodes", CACHE_TTL, c.nodes)}
+    if accts:
+        # Only usage and waits use the storage TTL (10 min): slow-changing, one slurmdbd query each.
+        tasks.update({"hist": lambda: cached(("lab-hist", days, accts), CACHE_TTL, c.recent, days, accounts),
+                      "usage": lambda: cached(("usage", accts), STORAGE_TTL, c.usage_by_month, accounts),
+                      "waits": lambda: cached(("wait", days, accts), STORAGE_TTL, c.queue_wait, accounts, days)})
+    d.update(gather(tasks))
+    if not accts:
+        d["hist"] = d["usage"] = d["waits"] = RuntimeError("no Slurm accounts: sshare failed or returned nothing")
     st = ok(d, "st") or EMPTY_ST
     gq = group_quotas(st)
     hist = ok(d, "hist") or []
     usage = ok(d, "usage") or {}
-    waits = ok(d, "waits") or []
-    bad = [r for r in hist if r[2].split()[0] in BAD_STATES]
+    waits = in_window(ok(d, "waits") or [], days)
 
     colors = user_colors(st["breakdown"])
     colors = extend_colors(colors, sorted({r[9] for r in hist if len(r) > 9 and r[9]}))
@@ -58,7 +62,7 @@ def build_lab(days):
     q = max(proj, key=lambda q: pct(q, "files", "fquota"), default=None)
     k.append(quota_kpi("☰", "/project files", q, "files", "fquota", count) if q else kpi("☰", "/project files", "no data", "—"))
     near = sum(v["disk"] + v["tape"] for (fs_, _), us in st["breakdown"].items() if fs_ == "nearline" for v in us.values())
-    k.append(kpi("◫", "/nearline", "disk + tape · all groups", size(near) if st["breakdown"] else "—"))
+    k.append(kpi("◫", "/nearline", "disk + tape · all groups" + (f" · as of {st['asof']}" if st.get("asof") else ""), size(near) if st["breakdown"] else "—"))
     month = max(usage) if usage else None
     mlabel = month_label(month) if month else "no data"
     k.append(kpi("▦", "CPU core-hours", mlabel, f"{sum(v['cpu'] for v in usage[month].values()):,.0f}" if month else "—"))
@@ -67,6 +71,10 @@ def build_lab(days):
 
     alerts = [f"{q['label']} {name} {p:.0f}%" for q in gq
               for name, p in (("space", pct(q)), ("files", pct(q, "files", "fquota"))) if p >= 95]
+
+    def problem_fold():
+        bad = [r for r in val(d, "hist") if len(r) > 2 and r[2].split()[0] in BAD_STATES]
+        return fold(f"Problem jobs, all members, last {days} d ({len(bad)})", problems_table(bad, with_user=True))
 
     near_title = "/nearline by user (TiB)" + (f" · login-node copy of {st['asof']}" if st.get("asof") else "")
     grid = "".join([
@@ -86,6 +94,6 @@ def build_lab(days):
              + legend([("busy", SERIES[0]), ("idle", GOOD), ("down/drained", OTHER)]))),
         safe("Jobs finished per day", lambda: card(f"Jobs finished per day · all members · last {days} d", jobs_per_day(val(d, "hist"), days))),
         safe("Jobs by member", lambda: card(f"Jobs by member · last {days} d", member_chart(val(d, "hist")))),
-        safe("Problem jobs", lambda: fold(f"Problem jobs, all members, last {days} d ({len(bad)})", problems_table(bad, with_user=True))),
+        safe("Problem jobs", problem_fold),
     ])
     return "".join(k), grid, alerts, colors

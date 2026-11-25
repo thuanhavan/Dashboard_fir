@@ -243,6 +243,12 @@ def queue_wait_chart(waits, days):
             + '<p class="muted">Started jobs only, bucketed by start week; a week with no started jobs shows 0.</p>')
 
 
+def in_window(waits, days):
+    """Entries of collectors.queue_wait() whose start date is within the last `days` days."""
+    today = dt.date.today()
+    return [(d, w) for d, w in waits if 0 <= (today - dt.date.fromisoformat(d)).days < days]
+
+
 # ---- job charts and tables ----------------------------------------------------------------------------------
 
 def jobs_per_day(hist, days):

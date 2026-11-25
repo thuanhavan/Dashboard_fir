@@ -70,6 +70,13 @@ class ChartTests(unittest.TestCase):
         self.assertEqual(p.hours_text(72), "3.0 d")
 
 
+class WindowTests(unittest.TestCase):
+    def test_in_window_drops_old_and_future(self):
+        t = p.dt.date.today()
+        w = [((t - p.dt.timedelta(days=n)).isoformat(), 1.0) for n in (-1, 0, 29, 30)]
+        self.assertEqual([x[0] for x in p.in_window(w, 30)], [w[1][0], w[2][0]])
+
+
 class SafetyTests(unittest.TestCase):
     def test_safe_turns_exception_into_card(self):
         html = p.safe("Space quota", lambda: 1 / 0)
