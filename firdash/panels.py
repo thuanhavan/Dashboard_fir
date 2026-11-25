@@ -364,6 +364,25 @@ def efficiency_card(eff, days):
     return card(f"My job efficiency · last {days} d · {len(eff)} jobs", body), cpu_eff, mem_eff, idle_h
 
 
+def stats_lag_note(breakdown, quotas, fs):
+    """One line per group comparing the nightly robinhood per-user totals with the live lfs quota, so a reader can
+    see how stale the by-user split is (moves and deletions reach robinhood only at its next scan)."""
+    parts = []
+    for (fs_, g), users in sorted(breakdown.items()):
+        if fs_ != fs:
+            continue
+        q = next((q for q in quotas if q["label"] == f"{g} /{fs}"), None)
+        if not q:
+            continue
+        rb_bytes = sum(v["disk"] + v["tape"] for v in users.values())
+        rb_files = sum(v.get("files", 0) for v in users.values())
+        parts.append(f"{g}: by-user stats {size(rb_bytes)} / {count(rb_files)} files vs live quota {size(q['used'])} / {count(q['files'])} files")
+    if not parts:
+        return ""
+    return ('<p class="muted">Per-user split comes from the cluster\'s nightly robinhood stats, which lag moves and deletions. '
+            + " · ".join(esc(x) for x in parts) + ".</p>")
+
+
 def section(title):
     """Full-width heading that groups the cards below it."""
     return f'<h2 class="sec">{esc(title)}</h2>'

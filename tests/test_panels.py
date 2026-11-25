@@ -188,3 +188,13 @@ class CacheTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LagNoteTests(unittest.TestCase):
+    def test_stats_lag_note_compares_robinhood_with_quota(self):
+        bd = {("project", "g"): {"a": {"disk": 2 * 2**40, "tape": 0.0, "files": 2_000_000}}}
+        quotas = [{"label": "g /project", "used": 1.5 * 2**40, "quota": 10 * 2**40, "files": 1_300_000, "fquota": 2e6}]
+        html = p.stats_lag_note(bd, quotas, "project")
+        self.assertIn("g: by-user stats 2.0 TiB / 2.00M files vs live quota 1.5 TiB / 1.30M files", html)
+        self.assertEqual(p.stats_lag_note(bd, quotas, "nearline"), "")
+

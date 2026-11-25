@@ -3,7 +3,7 @@ from . import collectors as c
 from . import cache
 from .cache import CACHE_TTL, STORAGE_TTL, cached
 from .charts import GOOD, OTHER, SERIES, count, legend, size
-from .panels import (section, EMPTY_ST, card, extend_colors, fairshare_chart, fold, gather, hours_text, jobs_per_day, kpi, level,
+from .panels import (section, stats_lag_note, EMPTY_ST, card, extend_colors, fairshare_chart, fold, gather, hours_text, jobs_per_day, kpi, level,
                      member_chart, month_label, nodes_chart, ok, pct, problems, problems_table, quota_chart, queue_wait_chart,
                      in_window, safe, usage_chart, usage_month_chart, user_colors, val)
 
@@ -80,7 +80,8 @@ def build_lab(days):
         safe("Space quota", lambda: card("Space quota", quota_chart(group_quotas(val(d, "st")), "used", "quota", size))),
         safe("File-count quota", lambda: card("File-count quota", quota_chart(group_quotas(val(d, "st")), "files", "fquota", count))),
         safe("/project by user (TiB)", lambda: card("/project by user (TiB)",
-             usage_chart(val(d, "st")["breakdown"], "project", val(d, "st")["groups"], colors, False) + legend(users))),
+             usage_chart(val(d, "st")["breakdown"], "project", val(d, "st")["groups"], colors, False) + legend(users)
+             + stats_lag_note(val(d, "st")["breakdown"], val(d, "st")["quotas"], "project"))),
         safe(near_title, lambda: card(near_title,
              usage_chart(val(d, "st")["breakdown"], "nearline", val(d, "st")["groups"], colors, True) + legend(users, True))),
         section("Compute"),
