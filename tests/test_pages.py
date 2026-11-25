@@ -1,3 +1,4 @@
+import datetime as dt
 import unittest
 from unittest import mock
 
@@ -13,12 +14,13 @@ ST = {"groups": ["def-a", "def-b"],
                     ("project", "def-b"): {"x": {"disk": 16e12, "tape": 0.0, "files": 10}},
                     ("nearline", "def-a"): {"me": {"disk": 0.0, "tape": 22e12, "files": 24}, "x": {"disk": 0.0, "tape": 65e12, "files": 99}}},
       "asof": "2026-11-25"}
+T = dt.date.today()
 FS = [["def-a_cpu", "0.5", "0.6", "0.15", "0.3"], ["def-a_gpu", "0.5", "0.1", "0.41", "4.0"]]
 ND = {"Regular CPU": [150000, 14000, 7000, 171000, 1000]}
-HIST = [["1", "j", "COMPLETED", "00:10:00", "01:00:00", "4G", "0:0", "def-a_cpu", "2026-11-25T01:00:00", "x"],
-        ["2", "j", "TIMEOUT", "01:00:00", "01:00:00", "4G", "0:0", "def-a_cpu", "2026-11-25T02:00:00", "me"]]
+HIST = [["1", "j", "COMPLETED", "00:10:00", "01:00:00", "4G", "0:0", "def-a_cpu", f"{T.isoformat()}T01:00:00", "x"],
+        ["2", "j", "TIMEOUT", "01:00:00", "01:00:00", "4G", "0:0", "def-a_cpu", f"{T.isoformat()}T02:00:00", "me"]]
 USAGE = {"2026-10": {"x": {"cpu": 40000.0, "gpu": 0.0}}, "2026-11": {"x": {"cpu": 50000.0, "gpu": 24.0}, "me": {"cpu": 3600.0, "gpu": 0.0}}}
-WAITS = [("2026-11-25", 1800.0), ("2026-11-24", 7200.0)]
+WAITS = [(T.isoformat(), 1800.0), ((T - dt.timedelta(days=1)).isoformat(), 7200.0)]
 
 
 def boom(exc):
