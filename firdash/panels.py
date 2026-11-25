@@ -82,6 +82,11 @@ def kpi(icon, title, sub, value, cls="", bar=None):
             f'<div class="kpi-b {cls}"><span>{esc(sub)}</span><b>{value}</b>{meter}</div></div>')
 
 
+def level(p):
+    """KPI class for a fill percentage: red at 95 %, amber at 85 %."""
+    return "crit" if p >= 95 else "warn" if p >= 85 else ""
+
+
 def pct(q, k="used", qk="quota"):
     return 100 * q[k] / max(q[qk], 1)
 
@@ -92,7 +97,7 @@ def quota_tile(q, title=None, note=None):
     which, p = ("space", sp) if sp >= fp else ("files", fp)
     sub = f"{size(q['used'])} / {size(q['quota'])}" if which == "space" else f"{count(q['files'])} / {count(q['fquota'])} files"
     return kpi("⚠" if p >= 95 else "▤", title or q["label"], f"{which} · {sub}" + (f" · {note}" if note else ""),
-               f"{p:.0f}%", "crit" if p >= 95 else "", p)
+               f"{p:.0f}%", level(p), p)
 
 
 def hours_text(h):
@@ -176,8 +181,8 @@ def my_share_chart(breakdown, quotas):
         mine = users.get(c.USER, {"disk": 0.0, "tape": 0.0, "files": 0})
         used = mine["disk"] + mine["tape"]
         p = 100 * used / max(q["quota"], 1)
-        rows.append((f"{g} /{fs}", [(p, SERIES[0], f"{c.USER}: {size(used)} of {size(q['quota'])} ({p:.1f}%)", False, None)],
-                     f'<tspan class="strong">{size(used)}</tspan> · {p:.1f}% · {mine["files"]:,} files'))
+        rows.append((f"{g} /{fs}", [(p, SERIES[0], f"{c.USER}: {size(used)} of {size(q['quota'])} ({p:.2f}%)", False, None)],
+                     f'<tspan class="strong">{size(used)}</tspan> · {p:.2f}% · {mine["files"]:,} files'))
     if not rows:
         return '<p class="muted">No group storage found.</p>'
     xmax = max([r[1][0][0] for r in rows] + [1.0])

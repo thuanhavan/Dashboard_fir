@@ -159,20 +159,20 @@ def fairshare():
 
 
 def jobs():
-    out = run(f"squeue -u {USER} -h -o '%i|%j|%T|%M|%l|%D|%C|%m|%a|%R'")
+    out = run_checked(f"squeue -u {USER} -h -o '%i|%j|%T|%M|%l|%D|%C|%m|%a|%R'")
     return [l.split("|") for l in out.splitlines() if l.strip()]
 
 
 def recent(days, accounts=None):
     who = f"-a -A {','.join(sorted(set(accounts)))}" if accounts else f"-u {USER}"
-    out = run(f"sacct {who} -S now-{days}days -X -n -P -o JobID,JobName,State,Elapsed,Timelimit,ReqMem,ExitCode,Account,End,User", 120)
+    out = run_checked(f"sacct {who} -S now-{days}days -X -n -P -o JobID,JobName,State,Elapsed,Timelimit,ReqMem,ExitCode,Account,End,User", 120)
     return [l.split("|") for l in out.splitlines() if l.strip()]
 
 
 def nodes():
     """Cores by node type: {type: [alloc, idle, other, total, n_nodes]}."""
     seen, out = set(), {}
-    for line in run("sinfo -h -N -o '%N|%m|%G|%C'").splitlines():
+    for line in run_checked("sinfo -h -N -o '%N|%m|%G|%C'").splitlines():
         parts = line.split("|")
         if len(parts) != 4 or parts[0] in seen:
             continue
@@ -187,7 +187,7 @@ def nodes():
 
 def pending_start():
     """Pending jobs with Slurm's expected start time and reason."""
-    out = run(f"squeue -u {USER} --start -h -o '%i|%j|%a|%C|%r|%S'")
+    out = run_checked(f"squeue -u {USER} --start -h -o '%i|%j|%a|%C|%r|%S'")
     return [l.split("|") for l in out.splitlines() if l.strip()]
 
 
@@ -218,7 +218,7 @@ def _mem(s, cpus=1, nodes=1):
 def efficiency(days):
     """Finished jobs (>= 2 min) of the last `days` days: CPU efficiency = TotalCPU / (Elapsed x CPUs),
     memory efficiency = peak RSS of any step / requested memory."""
-    out = run(f"sacct -u {USER} -S now-{days}days -n -P -o JobID,JobName,State,Elapsed,TotalCPU,AllocCPUS,ReqMem,MaxRSS,Account", 180)
+    out = run_checked(f"sacct -u {USER} -S now-{days}days -n -P -o JobID,JobName,State,Elapsed,TotalCPU,AllocCPUS,ReqMem,MaxRSS,Account", 180)
     jobs = {}
     for line in out.splitlines():
         p = [f.strip() for f in line.split("|")]

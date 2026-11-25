@@ -3,7 +3,7 @@ from . import cache
 from . import collectors as c
 from .cache import CACHE_TTL, STORAGE_TTL, cached
 from .charts import count, size
-from .panels import (EMPTY_ST, card, efficiency_card, fold, gather, jobs_per_day, kpi, my_share_chart, ok, pct,
+from .panels import (EMPTY_ST, JUPYTER_JOB, card, efficiency_card, fold, gather, jobs_per_day, kpi, my_share_chart, ok, pct,
                      pending_table, problems, problems_table, quota_chart, quota_tile, safe, val)
 
 SCRATCH_NOTE = "files unused for 60 days are purged"
@@ -41,6 +41,7 @@ def build_me(days):
     else:
         proj = kpi("▤", "My /project", "no data", "—")
     bad = problems(hist) if hist is not None else None
+    bad = [r for r in bad if r[1] != JUPYTER_JOB] if bad is not None else None   # session time limits are not problems
     home = next((q for q in mine if q["label"].endswith(" /home")), None)
     scratch = next((q for q in mine if q["label"].endswith(" /scratch")), None)
     k = [quota_tile(home, "/home") if home else kpi("▤", "/home", "no data", "—"),

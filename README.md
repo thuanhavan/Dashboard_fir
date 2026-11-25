@@ -16,7 +16,7 @@ Shows:
 - Job efficiency: peak memory vs requested and CPU efficiency per job name, idle core-hours
 - CPU core-hours and GPU-hours per member per calendar month (sreport), queue wait per week (median and 90th percentile)
 
-Data comes from `diskusage_report`, `lfs quota` (per-group project ID; `df` misreports /nearline file counts), the nightly robinhood stats behind `diskusage_rbh` (`/project/.stats`, `/nearline/.stats`), `sinfo`, `squeue`, `sshare`, `sacct` and `sreport`. Storage refreshes every 10 min, everything else every 60 s.
+Data comes from `diskusage_report`, `lfs quota` (per-group project ID; `df` misreports /nearline file counts), the nightly robinhood stats behind `diskusage_rbh` (`/project/.stats`, `/nearline/.stats`), `sinfo`, `squeue`, `sshare`, `sacct` and `sreport`. Storage, monthly usage, queue wait and job efficiency refresh every 10 min; queue and job lists every 60 s.
 
 ## For lab members
 
@@ -69,7 +69,7 @@ then open http://localhost:18765. Pick any local port Windows allows (8765 can b
 start in `~/.config/firdash/password` (mode 600); edit that file to change it (read at every sign-in) or set
 `FIRDASH_PASSWORD` before starting. `/logout` signs out.
 
-Reload the page to refresh (storage is cached 10 min, everything else 60 s).
+Reload the page to refresh (storage, monthly usage, queue wait and efficiency are cached 10 min, queue and job lists 60 s).
 
 ## Layout
 

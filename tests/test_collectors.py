@@ -113,5 +113,16 @@ class BreakdownTests(unittest.TestCase):
             self.assertFalse(hasattr(c, name), name)
 
 
+class FailLoudlyTests(unittest.TestCase):
+    def test_job_collectors_propagate_run_checked_errors(self):
+        calls = {"jobs": (), "recent": (7,), "pending_start": (), "efficiency": (7,), "nodes": ()}
+        for name, args in calls.items():
+            with self.subTest(name), \
+                 mock.patch.object(c, "run_checked", side_effect=RuntimeError("boom")), \
+                 mock.patch.object(c, "run", side_effect=AssertionError("unchecked run() used")):
+                with self.assertRaises(RuntimeError):
+                    getattr(c, name)(*args)
+
+
 if __name__ == "__main__":
     unittest.main()

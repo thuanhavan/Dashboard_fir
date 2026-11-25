@@ -46,8 +46,8 @@ JupyterHub prefix because every link is relative.
 
 ## Me page (top to bottom)
 
-1. **KPI row, 5 tiles**: /home %, /scratch %, my share of /project (GiB and % of the group quota, summed
-   over groups), running · pending, problem jobs in the window. The /scratch tile carries one line:
+1. **KPI row, 5 tiles**: /home %, /scratch %, my share of /project (the group where my share is highest:
+   GiB and % of that group's quota), running · pending, problem jobs in the window. The /scratch tile carries one line:
    files untouched for 60 days are purged.
 2. **My storage, two columns**. Left: /home and /scratch quota bars, space and files. Right: my /project
    and /nearline usage per group as bars against the group quota, with TiB and file count.
@@ -77,7 +77,7 @@ Refresh as today: storage and sreport every 10 min, jobs every 60 s.
 
 ```
 firdash/collectors.py   data; + usage_by_month, queue_wait
-firdash/charts.py       unchanged (bars, line, columns, radial, legend)
+firdash/charts.py       bars, line, columns, legend (radial removed)
 firdash/panels.py       NEW: one function per panel, returns the card HTML; shared by both pages
 firdash/lab.py          NEW: gathers data and lays out the Lab page
 firdash/me.py           NEW: gathers data and lays out the Me page

@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 from .collectors import USER
-from .render import CACHE_TTL, build
+from .render import CACHE_TTL, build, normalise
 
 PASSWORD_FILE = Path.home() / ".config" / "firdash" / "password"
 SOCKET_PATH = Path.home() / ".firdash" / "dash.sock"
@@ -69,10 +69,12 @@ def serve_socket(path, handler):
 
 
 def page(query):
-    t, body = _cache.get(query, (0, ""))
+    """Rendered page, cached per normalised (page, days) so junk query strings cannot grow the cache."""
+    key = normalise(dict(parse_qsl(query)))
+    t, body = _cache.get(key, (0, ""))
     if time.time() - t > CACHE_TTL:
-        body = build(dict(parse_qsl(query)))
-        _cache[query] = (time.time(), body)
+        body = build({"page": key[0], "days": str(key[1])})
+        _cache[key] = (time.time(), body)
     return body
 
 
@@ -81,7 +83,7 @@ def main():
     ap.add_argument("--port", type=int, default=None,
                     help="serve on 127.0.0.1:PORT with a password (0 = random port); default: private socket, no password")
     ap.add_argument("--socket", default=str(SOCKET_PATH), help="socket path for the default mode")
-    ap.add_argument("--days", type=int, default=None, help="history window when the URL has none (7, 30 or 90)")
+    ap.add_argument("--days", type=int, choices=(7, 30, 90), default=None, help="history window when the URL has none (7, 30 or 90)")
     ap.add_argument("--page", choices=("lab", "me"), default="lab", help="page for --html")
     ap.add_argument("--html", metavar="FILE", help="write one page as a static snapshot and exit ('-' = stdout)")
     a = ap.parse_args()

@@ -54,7 +54,7 @@ class ChartTests(unittest.TestCase):
             quotas = [{"label": "g1 /project", "used": 6 * 2**40, "quota": 10 * 2**40, "files": 4, "fquota": 100},
                       {"label": "g1 /nearline", "used": 2**40, "quota": 20 * 2**40, "files": 1, "fquota": 100}]
             html = p.my_share_chart(bd, quotas)
-        self.assertIn("me: 1.0 TiB of 10.0 TiB (10.0%)", html)
+        self.assertIn("me: 1.0 TiB of 10.0 TiB (10.00%)", html)
         self.assertIn("3 files", html)
         self.assertIn("g1 /nearline", html)
         self.assertNotIn("x:", html)
@@ -127,6 +127,35 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(cache.cached("k", 60, f), 1)
         self.assertEqual(cache.cached("k", 60, f), 1)
         self.assertEqual(len(n), 1)
+
+    def test_cached_is_single_flight(self):
+        import threading
+        import time
+        from firdash import cache
+        cache._ttl.clear()
+        self.addCleanup(cache._ttl.clear)
+        calls = []
+
+        def slow():
+            calls.append(1)
+            time.sleep(0.2)
+            return "v"
+        got = []
+        ts = [threading.Thread(target=lambda: got.append(cache.cached("cold", 60, slow))) for _ in range(2)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(got, ["v", "v"])
+
+    def test_cached_drops_expired_entries_on_write(self):
+        from firdash import cache
+        cache._ttl.clear()
+        self.addCleanup(cache._ttl.clear)
+        cache._ttl["old"] = (0.0, "stale")
+        cache.cached("new", 60, lambda: 1)
+        self.assertNotIn("old", cache._ttl)
 
     def test_cached_does_not_store_exceptions(self):
         from firdash import cache

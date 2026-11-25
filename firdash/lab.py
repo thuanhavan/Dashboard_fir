@@ -3,7 +3,7 @@ from . import collectors as c
 from . import cache
 from .cache import CACHE_TTL, STORAGE_TTL, cached
 from .charts import GOOD, OTHER, SERIES, count, legend, size
-from .panels import (EMPTY_ST, card, extend_colors, fairshare_chart, fold, gather, hours_text, jobs_per_day, kpi,
+from .panels import (EMPTY_ST, card, extend_colors, fairshare_chart, fold, gather, hours_text, jobs_per_day, kpi, level,
                      member_chart, month_label, nodes_chart, ok, pct, problems, problems_table, quota_chart, queue_wait_chart,
                      in_window, safe, usage_chart, usage_month_chart, user_colors, val)
 
@@ -18,7 +18,7 @@ def group_quotas(st):
 def quota_kpi(icon, title, q, key, qkey, fmt):
     p = pct(q, key, qkey)
     return kpi("⚠" if p >= 95 else icon, title, f"{q['label'].split()[0]} · {fmt(q[key])} / {fmt(q[qkey])}",
-               f"{p:.0f}%", "crit" if p >= 95 else "", p)
+               f"{p:.0f}%", level(p), p)
 
 
 def median(xs):

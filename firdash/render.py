@@ -7,7 +7,7 @@ from pathlib import Path
 from . import collectors as c
 from . import lab, me
 from .cache import CACHE_TTL, STORAGE_TTL
-from .charts import CRIT, GOOD, OTHER, SERIES, esc, hatch_defs
+from .charts import CRIT, GOOD, OTHER, SERIES, WARN, esc, hatch_defs
 
 PAGES = [("lab", "Lab"), ("me", "Me")]
 DAYS = (7, 30, 90)
@@ -17,9 +17,15 @@ ABOUT = ("Lab: storage, compute use and jobs of every group you belong to. Me: y
          "Read-only: it only reads the cluster's own reports under your account.")
 
 
-def build(params):
+def normalise(params):
+    """(page, days) from URL parameters: unknown page -> lab, days outside DAYS -> the page's default."""
     page = params.get("page") if params.get("page") in DEFAULT_DAYS else "lab"
     days = int(params["days"]) if str(params.get("days", "")).isdigit() and int(params["days"]) in DAYS else DEFAULT_DAYS[page]
+    return page, days
+
+
+def build(params):
+    page, days = normalise(params)
     kpis, grid, alerts, colors = (me.build_me if page == "me" else lab.build_lab)(days)
     return shell(page, days, kpis, grid, alerts, colors, bool(params.get("static")))
 
@@ -46,7 +52,7 @@ def controls(page, days, static):
 def shell(page, days, kpis, grid, alerts, colors, static):
     title = dict(PAGES)[page]
     alert_html = "".join(f'<span class="alert">⚠ {esc(a)}</span>' for a in alerts)
-    foot = ("static snapshot: rerun to refresh" if static else f"storage every {STORAGE_TTL // 60} min · jobs every {CACHE_TTL} s")
+    foot = ("static snapshot: rerun to refresh" if static else f"storage/usage every {STORAGE_TTL // 60} min · jobs every {CACHE_TTL} s")
     fills = list(dict.fromkeys(list(colors.values()) + [OTHER]))   # one <pattern> per distinct colour
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>Research Computing Dashboard · {title}</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -93,7 +99,7 @@ select{{background:var(--page);color:var(--ink);border:1px solid var(--border);b
 .kpi-b{{border:1px solid var(--border);border-radius:6px;padding:10px 14px;background:var(--surface)}}
 .kpi-b span{{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .kpi-b b{{display:block;font-size:30px;font-weight:600;margin-top:4px;white-space:nowrap}}
-.kpi-b.crit b{{color:#e66767}} .kpi-b.good b{{color:{GOOD}}} .muted{{color:var(--muted);font-size:13px}}
+.kpi-b.crit b{{color:#e66767}} .kpi-b.warn b{{color:{WARN}}} .kpi-b.good b{{color:{GOOD}}} .muted{{color:var(--muted);font-size:13px}}
 .meter{{position:relative;height:6px;background:var(--track);border-radius:3px;margin-top:8px}}
 .meter div{{height:100%;border-radius:3px}} .meter i{{position:absolute;top:-2px;width:1px;height:10px;background:{CRIT}}}
 .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(480px,100%),1fr));gap:16px}}

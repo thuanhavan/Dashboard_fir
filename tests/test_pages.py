@@ -1,4 +1,5 @@
 import datetime as dt
+import re
 import unittest
 from unittest import mock
 
@@ -61,6 +62,9 @@ class LabPageTests(unittest.TestCase):
                       "Problem jobs, all members, last 30 d (1)"):
             self.assertIn(title, grid, title)
         self.assertIn("def-a · 78.2 TiB / 90.9 TiB", kpis)          # fuller /project space tile names its group
+        files_tile = kpis.split("/project files")[1].split("</div></div>")[0]
+        self.assertIn('class="kpi-b warn"', files_tile)              # def-b files 445K / 500K = 89 %: amber
+        self.assertIn("89%", files_tile)
         self.assertIn("53,600", kpis)                                 # November core-hours
         self.assertIn("2.0 h", kpis)                                  # median of [1800 s, 7200 s] picks index 1 -> 7200 s
         self.assertEqual(alerts, [])
@@ -167,14 +171,19 @@ class MePageTests(unittest.TestCase):
         self.assertEqual(kpis.count('class="kpi"'), 5)
         self.assertEqual(alerts, [])
 
+    def test_jupyter_sessions_do_not_count_as_problem_jobs(self):
+        jup = ["5", "spawner-jupyterhub", "TIMEOUT", "01:00:00", "01:00:00", "2G", "0:0", "def-a_cpu", f"{T.isoformat()}T03:00:00", "me"]
+        kpis, grid, alerts, colors = self.run_me(recent=lambda d, a=None: MYHIST + [jup])
+        self.assertRegex(kpis, r"My problem jobs.*?<b>1</b>")               # only the real TIMEOUT
+        kpis, grid, alerts, colors = self.run_me(recent=lambda d, a=None: [jup])
+        self.assertRegex(kpis, r'My problem jobs.*?class="kpi-b "><span>[^<]*</span><b>0</b>')   # 0 and not red
+        self.assertIn("Problem jobs, last 7 d (1)", grid)                   # still listed in the table
+        self.assertIn("JupyterHub session reached its time limit", grid)
+
     def test_me_alert_on_own_quota(self):
         st = dict(ST, quotas=ST["quotas"][:3] + [dict(ST["quotas"][3], used=48e9)] + ST["quotas"][4:])
         kpis, grid, alerts, colors = self.run_me(storage=lambda: st)
         self.assertEqual(alerts, ["me /home space 96%"])
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ShellTests(unittest.TestCase):
@@ -211,7 +220,23 @@ class ShellTests(unittest.TestCase):
 
     def test_hatch_patterns_are_unique(self):
         html = self._with(fake_lab(), lambda: render.build({}))
-        import re
         ids = re.findall(r'<pattern id="(h[0-9a-f]+)"', html)
         self.assertEqual(len(ids), len(set(ids)))
         self.assertTrue(ids)
+
+
+    def test_server_page_cache_is_keyed_on_normalised_params(self):
+        from firdash import server
+        self.addCleanup(server._cache.clear)
+        server._cache.clear()
+        with mock.patch.object(server, "build", side_effect=lambda params: repr(sorted(params.items()))) as b:
+            first = server.page("")
+            self.assertEqual(server.page("page=lab&days=30&junk=1"), first)
+            self.assertEqual(server.page("page=nonsense&days=999"), first)
+            server.page("page=me")
+        self.assertEqual(b.call_count, 2)
+        self.assertEqual(set(server._cache), {("lab", 30), ("me", 7)})
+
+
+if __name__ == "__main__":
+    unittest.main()
