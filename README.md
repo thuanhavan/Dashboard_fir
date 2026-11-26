@@ -34,7 +34,9 @@ One-time setup, on Fir (SSH, or a Terminal in JupyterLab):
 /project/def-kanj241/A01_GAIG_data_repo/C01_pipelines/fir-dashboard/bin/firdash-jupyter-setup
 ```
 
-then stop any running JupyterHub server once (File → Hub Control Panel → Stop My Server). It adds a "Fir dashboard"
+then stop any running JupyterHub server once: open <https://jupyterhub.fir.alliancecan.ca/hub/home> (or, inside
+JupyterLab, File → Hub Control Panel) and click **Stop My Server**. Do this again whenever the dashboard code is
+updated, since a running server keeps the old code; a new browser window does not help. It adds a "Fir dashboard"
 launcher to your own sessions, keeps the Alliance launchers, never overwrites a `~/.jupyter/jupyter_server_config.py`
 it did not write, and is undone with `--remove`. Without it the button ends in "404 Not Found".
 
