@@ -1,3 +1,5 @@
+import json
+import os
 import datetime as dt
 import unittest
 from pathlib import Path
@@ -107,6 +109,21 @@ class BreakdownTests(unittest.TestCase):
     def test_fs_stats_survives_truncated_live_json(self):
         with mock.patch("builtins.open", mock.mock_open(read_data='{"hsm_size": [')):
             self.assertEqual(c._fs_stats("project", "g"), {"quota": None, "stats": [], "asof": None})
+
+    def test_fs_stats_uses_newest_copy_and_writes_shared_first(self):
+        import tempfile
+        from firdash.charts import size
+        with tempfile.TemporaryDirectory() as shared, tempfile.TemporaryDirectory() as home:
+            for d, t in ((shared, "2026-11-20 08:00"), (home, "2026-11-25 08:00")):
+                with open(os.path.join(d, "nearline-g.json"), "w") as f:
+                    json.dump({"time": t, "quota": None, "stats": [{"uid": "a", "count": 1}]}, f)
+            with mock.patch.object(c, "STATS_DIRS", [shared, home]):
+                self.assertEqual(c._fs_stats("nearline", "g")["asof"], "2026-11-25")
+                c._save_stats("nearline-g.json", {"time": "2026-11-26 08:00", "stats": []})
+                self.assertEqual(c._fs_stats("nearline", "g")["asof"], "2026-11-26")
+            with mock.patch.object(c, "STATS_DIRS", ["/proc/no-such-dir", home]):
+                self.assertTrue(c._save_stats("x.json", {}).startswith(home))
+        self.assertEqual((size(1_541_477), size(3 * 2**30), size(500)), ("1.5 MiB", "3 GiB", "0 KiB"))
 
     def test_removed_collectors_are_gone(self):
         for name in ("group_jobs", "filesystems", "arrays", "reservations", "pending_lab"):

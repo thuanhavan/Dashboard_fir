@@ -57,7 +57,11 @@ def groups():
     return sorted(g for g in run("groups").split() if g.startswith(("def-", "rrg-", "rpp-")))
 
 
-STATS_CACHE = os.path.join(os.path.expanduser("~"), ".firdash", "stats")
+# Copies of the /nearline nightly stats for nodes without the mount. The shared folder (inside the member copy of
+# the repo, group-writable) serves everyone; the home folder is the fallback when the shared one is not writable.
+STATS_DIRS = [os.environ.get("FIRDASH_STATS_DIR")
+              or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "var", "stats"),
+              os.path.join(os.path.expanduser("~"), ".firdash", "stats")]
 
 
 def _quota_row(fs, group):
@@ -93,12 +97,12 @@ def _fs_stats(fs, group):
 
     Reads the nightly robinhood file /{fs}/.stats/{group}.json (what diskusage_rbh prints) and the lfs quota.
     /nearline is mounted on login nodes only, so whenever both are readable they are also written to
-    ~/.firdash/stats/{fs}-{group}.json; on a node without the mount (compute nodes, where the published
-    snapshot is built) that copy is used instead and "asof" carries its date.
+    {fs}-{group}.json in the first writable STATS_DIRS folder; on a node without the mount (compute nodes, where
+    JupyterHub sessions run) the newest copy found there is used instead and "asof" carries its date.
     Returns {"quota": row|None, "stats": [...], "asof": "YYYY-MM-DD"|None}.
     """
     live = f"/{fs}/.stats/{group}.json"
-    cache = os.path.join(STATS_CACHE, f"{fs}-{group}.json")
+    name = f"{fs}-{group}.json"
     data = {"quota": None, "stats": [], "asof": None}
     try:
         with open(live) as f:
@@ -107,21 +111,37 @@ def _fs_stats(fs, group):
     except (OSError, ValueError):
         pass
     if data["stats"]:
+        _save_stats(name, {"time": time.strftime("%Y-%m-%d %H:%M"), **data})
+        return data
+    best = None
+    for d in STATS_DIRS:
         try:
-            os.makedirs(STATS_CACHE, exist_ok=True)
-            tmp = cache + ".tmp"
+            with open(os.path.join(d, name)) as f:
+                c = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if best is None or c.get("time", "") > best.get("time", ""):
+            best = c
+    if best is None:
+        return data
+    return {"quota": best.get("quota"), "stats": best.get("stats", []), "asof": best.get("time", "")[:10]}
+
+
+def _save_stats(name, payload):
+    """Write the stats copy to the first STATS_DIRS folder that accepts it (group-readable); silent on failure."""
+    for d in STATS_DIRS:
+        try:
+            os.makedirs(d, exist_ok=True)
+            path = os.path.join(d, name)
+            tmp = f"{path}.{os.getpid()}.tmp"
             with open(tmp, "w") as f:
-                json.dump({"time": time.strftime("%Y-%m-%d %H:%M"), **data}, f)
-            os.replace(tmp, cache)
+                json.dump(payload, f)
+            os.chmod(tmp, 0o664)
+            os.replace(tmp, path)
+            return path
         except OSError:
-            pass
-        return data
-    try:
-        with open(cache) as f:
-            d = json.load(f)
-        return {"quota": d.get("quota"), "stats": d.get("stats", []), "asof": d.get("time", "")[:10]}
-    except (OSError, ValueError):
-        return data
+            continue
+    return None
 
 
 def group_quotas():

@@ -5,3 +5,6 @@ __pycache__/
 # local screenshots
 docs/screenshot_feedback.png
 Screenshot*.png
+
+# shared copies of the /nearline nightly stats
+var/

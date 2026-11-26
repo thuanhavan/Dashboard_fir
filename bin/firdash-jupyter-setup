@@ -37,6 +37,19 @@ def ours():
     return TARGET.exists() and TARGET.read_text(errors="replace").startswith(MARKER)
 
 
+def refresh_nearline_copy():
+    """On a login node /nearline is mounted: store its nightly stats where compute-node sessions can read them."""
+    if not os.path.isdir("/nearline/.stats"):
+        return
+    sys.path.insert(0, REPO)
+    try:
+        from firdash import collectors as c
+        done = [g for g in c.groups() if c.fs_stats("nearline", g)["stats"]]
+        print(f"Refreshed the /nearline stats copy for: {', '.join(done) or 'no group'}.")
+    except Exception as e:
+        print("Could not refresh the /nearline stats copy:", e, file=sys.stderr)
+
+
 def main():
     if sys.argv[1:] == ["--remove"]:
         if ours():
@@ -52,6 +65,7 @@ def main():
                  "Ask the dashboard maintainer to merge the launcher into it.")
     TARGET.parent.mkdir(parents=True, exist_ok=True)
     TARGET.write_text(CONFIG)
+    refresh_nearline_copy()
     print(f"Done: wrote {TARGET}.\n"
           "Next: if a JupyterHub server is running, stop it at https://jupyterhub.fir.alliancecan.ca/hub/home\n"
           "(Stop My Server; or File > Hub Control Panel in JupyterLab),\n"

@@ -44,9 +44,10 @@ Short link: <https://fir.gaig.ca/direct>. After the click the address bar shows 
 dashboard runs there, and Fir JupyterHub cannot be embedded in or proxied through another site. fir.gaig.ca is a static
 page on the gaig VM (nginx, `/var/www/fir-gaig`, `/etc/nginx/sites-available/fir-redirect`); it holds no data.
 
-JupyterHub sessions run on compute nodes, where /nearline is not mounted. The dashboard then uses the copy of the
-nightly /nearline stats that a login-node run leaves in `~/.firdash/stats/` (the /nearline card says "login-node copy
-of <date>"); run `bin/firdash --html /dev/null` on a login node now and then to refresh it.
+JupyterHub sessions run on compute nodes, where /nearline is not mounted. The dashboard then uses a copy of the
+nightly /nearline stats kept in the shared folder `var/stats/` of the member copy (the /nearline card says "login-node
+copy of <date>"). Any member refreshes it by running the setup command above, or `bin/firdash --html /dev/null`, on
+a login node (SSH); a home-folder copy in `~/.firdash/stats/` is the fallback when the shared folder is not writable.
 
 ## Usage
 

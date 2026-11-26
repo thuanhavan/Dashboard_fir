@@ -12,7 +12,11 @@ def esc(s):
 def size(b):
     if b >= 2**50:
         return f"{b / 2**50:.1f} PiB"
-    return f"{b / 2**40:.1f} TiB" if b >= 2**40 else f"{b / 2**30:.0f} GiB"
+    if b >= 2**40:
+        return f"{b / 2**40:.1f} TiB"
+    if b >= 2**30:
+        return f"{b / 2**30:.0f} GiB"
+    return f"{b / 2**20:.1f} MiB" if b >= 2**20 else f"{b / 2**10:.0f} KiB"
 
 
 def count(n):
