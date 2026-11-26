@@ -46,8 +46,11 @@ page on the gaig VM (nginx, `/var/www/fir-gaig`, `/etc/nginx/sites-available/fir
 
 JupyterHub sessions run on compute nodes, where /nearline is not mounted. The dashboard then uses a copy of the
 nightly /nearline stats kept in the shared folder `var/stats/` of the member copy (the /nearline card says "login-node
-copy of <date>"). Any member refreshes it by running the setup command above, or `bin/firdash --html /dev/null`, on
-a login node (SSH); a home-folder copy in `~/.firdash/stats/` is the fallback when the shared folder is not writable.
+copy of <date>"). `bin/firdash-refresh-stats`, run on a login node (SSH), refreshes it; the setup command does the same. Compute
+nodes cannot see /nearline, so a Slurm job cannot do this, but a daily cron entry on login1 can
+(`crontab -e`, add `0 3 * * * /project/def-kanj241/A01_GAIG_data_repo/C01_pipelines/fir-dashboard/bin/firdash-refresh-stats`;
+Alliance writes the nightly files at about 01:00). A home-folder copy in `~/.firdash/stats/` is the fallback when
+the shared folder is not writable.
 
 ## Usage
 
