@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Refresh the shared copy of the nightly /nearline stats (var/stats/ in this repo) for your groups.
+"""Scan /nearline for your groups (owner, size and tape state of every file) and refresh the shared copies in
+var/stats/ of this repo (the scan plus the nightly robinhood stats).
 
 Run on a login node, where /nearline is mounted; JupyterHub sessions on compute nodes read the copy.
 Daily cron on login1 (Alliance writes the files at about 01:00 Fir time):
@@ -15,5 +16,10 @@ from firdash import collectors as c  # noqa: E402
 
 if not os.path.isdir("/nearline/.stats"):
     sys.exit("/nearline is not mounted here; run this on a login node.")
-done = [g for g in c.groups() if c.fs_stats("nearline", g)["stats"]]
-print(time.strftime("%Y-%m-%d %H:%M"), "refreshed /nearline stats copy for:", ", ".join(done) or "no group")
+done = []
+for g in c.groups():
+    d = c.fs_stats("nearline", g)
+    if d["stats"]:
+        sc = d.get("scan")
+        done.append(f"{g} ({d['source']}" + (f", {sc['files']:,} files" if sc else "") + ")")
+print(time.strftime("%Y-%m-%d %H:%M"), "refreshed /nearline stats for:", ", ".join(done) or "no group")

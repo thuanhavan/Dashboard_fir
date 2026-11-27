@@ -116,6 +116,9 @@ select{{background:var(--page);color:var(--ink);border:1px solid var(--border);b
 .alerts{{min-height:0;margin-bottom:8px}}
 .alert{{display:inline-block;background:{CRIT};color:#fff;border-radius:12px;padding:3px 10px;margin:0 6px 6px 0;font-size:12px;font-weight:600}}
 .kpis{{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:16px;margin-bottom:18px}}
+.live{{display:inline-block;width:9px;height:9px;margin-left:6px;border-radius:50%;background:{GOOD};vertical-align:middle;animation:pulse 1.6s ease-in-out infinite}}
+@keyframes pulse{{0%,100%{{opacity:.25;transform:scale(.8)}}50%{{opacity:1;transform:scale(1.15)}}}}
+@media (prefers-reduced-motion:reduce){{.live{{animation:none}}}}
 .kpi-h{{background:var(--head);border-radius:6px;padding:10px 14px;font-size:14px;margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .kpi-b{{border:1px solid var(--border);border-radius:6px;padding:10px 14px;background:var(--surface)}}
 .kpi-b span{{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}

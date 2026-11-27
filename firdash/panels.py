@@ -7,7 +7,7 @@ from .collectors import SIZE_LIMIT
 from .charts import CRIT, GOOD, OTHER, SERIES, bars, columns, count, esc, legend, line, nice_step, size, status_fill
 
 BAD_STATES = ("FAILED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "CANCELLED")
-EMPTY_ST = {"groups": [], "quotas": [], "breakdown": {}, "asof": None}
+EMPTY_ST = {"groups": [], "quotas": [], "breakdown": {}, "asof": None, "scans": {}}
 REASONS = {"Priority": "waiting for higher-priority jobs", "Resources": "next in line, waiting for free nodes",
            "Dependency": "waits for another job", "DependencyNeverSatisfied": "dependency failed: will never start",
            "AssocGrpCPULimit": "account core limit reached", "QOSMaxJobsPerUserLimit": "per-user job limit",
@@ -58,8 +58,12 @@ def safe(title, thunk):
 
 # ---- building blocks -----------------------------------------------------------------------------------------
 
-def card(title, body, span=1):
-    return f'<section class="card" style="grid-column:span {span}"><h3>{esc(title)}</h3>{body}</section>'
+def card(title, body, span=1, full=False):
+    col = "1/-1" if full else f"span {span}"
+    return f'<section class="card" style="grid-column:{col}"><h3>{esc(title)}</h3>{body}</section>'
+
+
+LIVE_DOT = '<span class="live" title="jobs running now"></span>'
 
 
 def fold(summary, body, open_=False):
@@ -190,6 +194,49 @@ def my_share_chart(breakdown, quotas):
     step = nice_step(xmax)
     xmax = step * -(-xmax // step)
     return bars(rows, xmax, [t * step for t in range(int(xmax / step) + 1)], lambda t: f"{t:g}%", value_w=220)
+
+
+STATE_COLORS = {"On disk": SERIES[1], "Archiving in progress": SERIES[3], "On disk and tape": GOOD,
+                "Modified, will be archived again": CRIT, "On tape": SERIES[0]}
+STATE_HELP = {"On disk": "copied in, no tape copy yet", "Archiving in progress": "tape copy being written",
+              "On disk and tape": "safe; still counts against the disk quota", "Modified, will be archived again": "changed after archiving",
+              "On tape": "disk copy released; free of the disk quota"}
+
+
+def nearline_state_chart(scans, groups):
+    """One stacked bar per group: how much of /nearline is in each HSM state (TiB), with a share table and the
+    folders the scan could not enter. scans = {group: scan dict | None} from collectors.nearline_scan()."""
+    rows, tables, notes = [], [], []
+    for g in groups:
+        scan = scans.get(g)
+        if not scan:
+            continue
+        tot = scan["bytes"] or 1
+        segs = [(st["bytes"] / 2**40, STATE_COLORS[name], f"{name}: {size(st['bytes'])} · {st['files']:,} files · {100 * st['bytes'] / tot:.0f}%", False, None)
+                for name, st in scan["states"].items() if st["bytes"]]
+        rows.append((g, segs, f'<tspan class="strong">{size(scan["bytes"])}</tspan> · {scan["files"]:,} files'))
+        tables += [[g, name, f"{st['files']:,}", size(st["bytes"]), f"{100 * st['bytes'] / tot:.1f}%", STATE_HELP[name]]
+                   for name, st in scan["states"].items() if st["files"]]
+        if scan.get("unreadable"):
+            notes.append(f"{g}: {', '.join(scan['unreadable'])}")
+    if not rows:
+        return '<p class="muted">No nearline scan yet: it runs on a login node (bin/firdash-refresh-stats, nightly by cron).</p>'
+    xmax = max(sum(seg[0] for seg in segs) for _, segs, _ in rows) or 1.0
+    step = nice_step(xmax)
+    xmax = step * -(-xmax // step)
+    html = bars(rows, xmax, [t * step for t in range(int(xmax / step) + 1)], lambda t: f"{t:g}", value_w=200)
+    html += legend([(name, col) for name, col in STATE_COLORS.items()])
+    html += table(["Group", "State", "Files", "Size", "Share", "Meaning"], tables)
+    if notes:
+        html += f'<p class="muted">Folders the scan could not enter (not counted): {esc("; ".join(notes))}.</p>'
+    return html
+
+
+def pending_tape_table(scans, groups):
+    """Folders (two levels) holding files not yet safely on tape, biggest first: (row_count, total_bytes, html)."""
+    rows = [[f"{g}/{f}", u, st, f"{n:,}", size(b)] for g in groups for f, u, st, n, b in (scans.get(g) or {}).get("pending", [])]
+    total = sum(b for g in groups for *_, b in (scans.get(g) or {}).get("pending", []))
+    return len(rows), total, table(["Folder", "Owner", "State", "Files", "Size"], rows)
 
 
 # ---- compute charts ------------------------------------------------------------------------------------------

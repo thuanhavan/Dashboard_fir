@@ -53,4 +53,5 @@ def _storage():
         gq = ex.submit(c.group_quotas)
         bd = {k: ex.submit(c.user_breakdown, *k) for k in pairs}
         return {"groups": gs, "quotas": gq.result() + uq.result(),
-                "breakdown": {k: f.result() for k, f in bd.items()}, "asof": c.stats_asof()}
+                "breakdown": {k: f.result() for k, f in bd.items()}, "asof": c.stats_asof(),
+                "scans": {g: c.fs_stats("nearline", g).get("scan") for g in gs}}

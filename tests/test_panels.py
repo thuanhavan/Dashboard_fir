@@ -5,6 +5,27 @@ from firdash import panels as p
 from firdash.charts import SERIES, OTHER
 
 
+SCAN = {"time": "2026-11-27 03:00", "group": "def-a", "files": 4, "bytes": 4 * 2**40,
+        "states": {"On disk": {"files": 1, "bytes": 2**40}, "Archiving in progress": {"files": 0, "bytes": 0},
+                   "On disk and tape": {"files": 1, "bytes": 2**40}, "Modified, will be archived again": {"files": 0, "bytes": 0},
+                   "On tape": {"files": 2, "bytes": 2 * 2**40}},
+        "users": {}, "pending": [["kanj241/raw", "me", "On disk", 1, 2**40]], "unreadable": ["yaw"]}
+
+
+class NearlineScanPanelTests(unittest.TestCase):
+    def test_state_chart_shows_shares_and_unreadable_folders(self):
+        html = p.nearline_state_chart({"def-a": SCAN, "def-b": None}, ["def-a", "def-b"])
+        self.assertIn("On tape: 2.0 TiB · 2 files · 50%", html)
+        self.assertIn("<td>25.0%</td>", html)
+        self.assertIn("could not enter (not counted): def-a: yaw", html)
+        self.assertIn("No nearline scan yet", p.nearline_state_chart({"def-a": None}, ["def-a"]))
+
+    def test_pending_table_lists_folders_biggest_first(self):
+        n, total, html = p.pending_tape_table({"def-a": SCAN}, ["def-a"])
+        self.assertEqual((n, total), (1, 2**40))
+        self.assertIn("<td>def-a/kanj241/raw</td><td>me</td><td>On disk</td><td>1</td><td>1.0 TiB</td>", html)
+
+
 class ChartTests(unittest.TestCase):
     def test_usage_month_chart_stacks_members_and_other(self):
         usage = {"2026-10": {"a": {"cpu": 10, "gpu": 0}, "b": {"cpu": 5, "gpu": 1}},

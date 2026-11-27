@@ -3,7 +3,7 @@ from . import collectors as c
 from . import cache
 from .cache import CACHE_TTL, STORAGE_TTL, cached
 from .charts import GOOD, OTHER, SERIES, count, legend, size
-from .panels import (section, stats_lag_note, EMPTY_ST, card, extend_colors, fairshare_chart, fold, gather, hours_text, jobs_per_day, kpi, level,
+from .panels import (LIVE_DOT, nearline_state_chart, pending_tape_table, section, stats_lag_note, EMPTY_ST, card, extend_colors, fairshare_chart, fold, gather, hours_text, jobs_per_day, kpi, level,
                      member_chart, month_label, nodes_chart, ok, pct, problems, problems_table, quota_chart, queue_wait_chart,
                      in_window, safe, usage_chart, usage_month_chart, user_colors, val)
 
@@ -71,7 +71,7 @@ def build_lab(days):
     k.append(kpi("◫", "/nearline", "disk + tape · all groups" + (f" · as of {st['asof']}" if st.get("asof") else ""), size(near) if st["breakdown"] else "—"))
     now = ok(d, "now")
     k.append(kpi("▦", "CPU cores in use", f"now · {now['jobs']:,} running jobs" if now else "no data",
-                 f"{now['cpus']:,}" if now else "—", "good" if now and now["cpus"] else ""))
+                 f"{now['cpus']:,}" + (LIVE_DOT if now["cpus"] else "") if now else "—", "good" if now and now["cpus"] else ""))
     k.append(kpi("▣", "GPUs in use", f"now · {now['gpu_jobs']:,} GPU jobs" if now else "no data",
                  f"{now['gpus']:,}" if now else "—", "good" if now and now["gpus"] else ""))
     k.append(kpi("◷", "Queue wait", f"median · last {days} d · {len(waits):,} jobs", hours_text(median([w for _, w in waits]) / 3600) if waits else "—"))
@@ -79,11 +79,19 @@ def build_lab(days):
     alerts = [f"{q['label']} {name} {p:.0f}%" for q in gq
               for name, p in (("space", pct(q)), ("files", pct(q, "files", "fquota"))) if p >= 95]
 
+    def pending_fold():
+        n, total, body = pending_tape_table(scans, val(d, "st")["groups"])
+        return fold(f"Files not yet on tape · {n} folders · {size(total)}", body)
+
     def problem_fold():
         bad = problems(val(d, "hist"))
         return fold(f"Problem jobs, all members, last {days} d ({len(bad)})", problems_table(bad, with_user=True))
 
-    near_title = "/nearline by user (TiB) · disk + tape · nightly stats" + (f" · copy of {st['asof']}" if st.get("asof") else "")
+    scans = st.get("scans") or {}
+    scanned = min((sc["time"] for sc in scans.values() if sc), default=None)
+    near_src = f"our scan of {scanned}" if scanned else "nightly stats" + (f" · copy of {st['asof']}" if st.get("asof") else "")
+    near_title = f"/nearline by user (TiB) · disk + tape · {near_src}"
+    state_title = f"/nearline by state (TiB) · {near_src}"
     quota_note = ('<p class="muted">Live lfs quota. /nearline counts only data still on disk, as Alliance\'s diskusage_report '
                   'does; data already moved to tape is in the /nearline by user chart.</p>')
     grid = "".join([
@@ -95,6 +103,8 @@ def build_lab(days):
              + stats_lag_note(val(d, "st")["breakdown"], val(d, "st")["quotas"], "project"))),
         safe(near_title, lambda: card(near_title,
              usage_chart(val(d, "st")["breakdown"], "nearline", val(d, "st")["groups"], colors, True) + legend(users, True))),
+        safe(state_title, lambda: card(state_title, nearline_state_chart(scans, val(d, "st")["groups"]), full=True)),
+        safe("Files not yet on tape", pending_fold),
         section("Compute"),
         safe("CPU core-hours per month by member", lambda: card("CPU core-hours per month by member",
              usage_month_chart(val(d, "usage"), "cpu", colors))),

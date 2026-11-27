@@ -16,7 +16,7 @@ ST = {"groups": ["def-a", "def-b"],
       "breakdown": {("project", "def-a"): {"me": {"disk": 20e9, "tape": 0.0, "files": 659}, "otheruser": {"disk": 27e12, "tape": 0.0, "files": 100}},
                     ("project", "def-b"): {"otheruser": {"disk": 16e12, "tape": 0.0, "files": 10}},
                     ("nearline", "def-a"): {"me": {"disk": 0.0, "tape": 22e12, "files": 24}, "otheruser": {"disk": 0.0, "tape": 65e12, "files": 99}}},
-      "asof": "2026-11-25"}
+      "asof": "2026-11-25", "scans": {}}
 T = dt.date.today()
 FS = [["def-a_cpu", "0.5", "0.6", "0.15", "0.3"], ["def-a_gpu", "0.5", "0.1", "0.41", "4.0"]]
 ND = {"Regular CPU": [150000, 14000, 7000, 171000, 1000]}
@@ -60,6 +60,7 @@ class LabPageTests(unittest.TestCase):
         kpis, grid, alerts, colors = self.run_lab()
         self.assertEqual(kpis.count('class="kpi"'), 6)
         for title in ("Space quota", "File-count quota", "/project by user (TiB) · nightly stats, may lag recent moves", "/nearline by user (TiB) · disk + tape · nightly stats · copy of 2026-11-25",
+                      "/nearline by state (TiB) · nightly stats · copy of 2026-11-25", "Files not yet on tape · 0 folders · 0 KiB",
                       "CPU core-hours per month by member", "GPU-hours per month by member", "Queue wait per week · hours · last 30 d",
                       "Fairshare · cluster cores now", "Jobs finished per day · all members · last 30 d", "Jobs by member · last 30 d",
                       "Problem jobs, all members, last 30 d (1)"):
@@ -71,7 +72,12 @@ class LabPageTests(unittest.TestCase):
         self.assertIn('text-anchor="middle">53,600</text>', grid)   # November total printed on top of its column
         self.assertIn("now · 12 running jobs", kpis)
         self.assertIn("now · 2 GPU jobs", kpis)
-        self.assertIn("<b>96</b>", kpis)
+        self.assertIn('<b>96<span class="live"', kpis)                # pulse dot while jobs run
+        scan = {"time": "2026-11-27 03:00", "group": "def-a", "files": 1, "bytes": 2**40, "unreadable": [],
+                "states": {"On disk": {"files": 1, "bytes": 2**40}}, "users": {}, "pending": [["x", "me", "On disk", 1, 2**40]]}
+        kpis, grid, alerts, colors = self.run_lab(storage=lambda: {**ST, "scans": {"def-a": scan}})
+        self.assertIn("/nearline by user (TiB) · disk + tape · our scan of 2026-11-27 03:00", grid)
+        self.assertIn("Files not yet on tape · 1 folders · 1.0 TiB", grid)
         self.assertIn("2.0 h", kpis)                                  # median of [1800 s, 7200 s] picks index 1 -> 7200 s
         self.assertEqual(alerts, [])
         self.assertIn("otheruser", colors)

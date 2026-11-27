@@ -108,7 +108,7 @@ class BreakdownTests(unittest.TestCase):
 
     def test_fs_stats_survives_truncated_live_json(self):
         with mock.patch("builtins.open", mock.mock_open(read_data='{"hsm_size": [')):
-            self.assertEqual(c._fs_stats("project", "g"), {"quota": None, "stats": [], "asof": None})
+            self.assertEqual(c._fs_stats("project", "g"), {"quota": None, "stats": [], "asof": None, "source": "robinhood"})
 
     def test_fs_stats_uses_newest_copy_and_writes_shared_first(self):
         import tempfile
@@ -128,6 +128,40 @@ class BreakdownTests(unittest.TestCase):
     def test_removed_collectors_are_gone(self):
         for name in ("group_jobs", "filesystems", "arrays", "reservations", "pending_lab"):
             self.assertFalse(hasattr(c, name), name)
+
+
+class NearlineScanTests(unittest.TestCase):
+    HSM = ("/n/g/a/b/f1: (0x0000000d) released exists archived, archive_id:2\n"
+           "/n/g/a/b/f2: (0x00000009) exists archived, archive_id:2\n"
+           "/n/g/c/f3: (0x00000000)\n"
+           "/n/g/c/f4: (0x0000000b) exists dirty archived, archive_id:2\n"
+           "/n/g/c/f5: (0x00000001) exists\n")
+
+    def test_parse_hsm_maps_flags_to_states(self):
+        self.assertEqual(c.parse_hsm(self.HSM), {"/n/g/a/b/f1": "On tape", "/n/g/a/b/f2": "On disk and tape", "/n/g/c/f3": "On disk",
+                                                 "/n/g/c/f4": "Modified, will be archived again", "/n/g/c/f5": "Archiving in progress"})
+
+    def test_summarise_scan_totals_users_and_pending_folders(self):
+        recs = [("a/b/f1", "me", 10, "On tape"), ("a/b/f2", "me", 20, "On disk and tape"), ("c/f3", "you", 30, "On disk"),
+                ("c/d/e/f4", "you", 40, "Modified, will be archived again"), ("f5", "me", 50, "On disk")]
+        sc = c.summarise_scan("g", recs, {"yaw"}, now="2026-11-27 15:00")
+        self.assertEqual((sc["files"], sc["bytes"], sc["unreadable"]), (5, 150, ["yaw"]))
+        self.assertEqual(sc["states"]["On disk"], {"files": 2, "bytes": 80})
+        self.assertEqual(sc["users"]["me"]["On tape"], [1, 10])
+        self.assertEqual(sc["pending"], [[".", "me", "On disk", 1, 50], ["c/d", "you", "Modified, will be archived again", 1, 40], ["c", "you", "On disk", 1, 30]])
+        entries = c.scan_entries(sc)
+        self.assertIn({"uid": "me", "count": 1, "size": 10, "volume": 0, "location": "On tape"}, entries)
+        self.assertIn({"uid": "you", "count": 1, "size": 30, "volume": 30, "location": "On disk"}, entries)
+        with mock.patch.object(c, "fs_stats", lambda fs, g: {"stats": entries, "source": "scan"}):
+            self.assertEqual(c.user_breakdown("nearline", "g"), {"me": {"disk": 70.0, "tape": 10.0, "files": 3}, "you": {"disk": 70.0, "tape": 0.0, "files": 2}})
+
+    def test_fs_stats_prefers_scan_for_nearline(self):
+        sc = c.summarise_scan("g", [("f", "me", 7, "On disk")], set(), now="2026-11-27 15:00")
+        with mock.patch.object(c, "nearline_scan", lambda g: sc), mock.patch("builtins.open", side_effect=OSError):
+            d = c._fs_stats("nearline", "g")
+        self.assertEqual((d["source"], d["asof"], d["stats"][0]["uid"]), ("scan", "2026-11-27", "me"))
+        with mock.patch.object(c, "nearline_scan", lambda g: None), mock.patch("builtins.open", side_effect=OSError):
+            self.assertEqual(c._fs_stats("nearline", "g")["source"], "robinhood")
 
 
 class RunningNowTests(unittest.TestCase):

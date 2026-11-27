@@ -47,7 +47,10 @@ page on the gaig VM (nginx, `/var/www/fir-gaig`, `/etc/nginx/sites-available/fir
 
 JupyterHub sessions run on compute nodes, where /nearline is not mounted. The dashboard then uses a copy of the
 nightly /nearline stats kept in the shared folder `var/stats/` of the member copy (the /nearline card says "login-node
-copy of <date>"). `bin/firdash-refresh-stats`, run on a login node (SSH), refreshes it; the setup command does the same. Compute
+copy of <date>"). `bin/firdash-refresh-stats`, run on a login node (SSH), refreshes it and also runs our own /nearline scan (owner, size
+and tape state of every file, about a second per group; stored as `var/stats/nearline-scan-<group>.json`). When a
+scan exists the /nearline charts use it instead of the nightly stats, and the Lab page shows "/nearline by state" and
+"Files not yet on tape". The setup command does the same refresh. Compute
 nodes cannot see /nearline, so a Slurm job cannot do this, but a daily cron entry on login1 can
 (`crontab -e`, add `0 3 * * * /project/def-kanj241/A01_GAIG_data_repo/C01_pipelines/fir-dashboard/bin/firdash-refresh-stats`;
 Alliance writes the nightly files at about 01:00). A home-folder copy in `~/.firdash/stats/` is the fallback when

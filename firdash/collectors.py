@@ -2,6 +2,7 @@ import concurrent.futures
 import datetime as dt
 import json
 import os
+import pwd
 import re
 import subprocess
 import threading
@@ -106,7 +107,8 @@ def _fs_stats(fs, group):
     /nearline is mounted on login nodes only, so whenever both are readable they are also written to
     {fs}-{group}.json in the first writable STATS_DIRS folder; on a node without the mount (compute nodes, where
     JupyterHub sessions run) the newest copy found there is used instead and "asof" carries its date.
-    Returns {"quota": row|None, "stats": [...], "asof": "YYYY-MM-DD"|None}.
+    For /nearline our own scan (nearline_scan) replaces the robinhood entries when available.
+    Returns {"quota": row|None, "stats": [...], "asof": "YYYY-MM-DD"|None, "source": "robinhood"|"scan", ["scan": {...}]}.
     """
     live = f"/{fs}/.stats/{group}.json"
     name = f"{fs}-{group}.json"
@@ -119,19 +121,139 @@ def _fs_stats(fs, group):
         pass
     if data["stats"]:
         _save_stats(name, {"time": time.strftime("%Y-%m-%d %H:%M"), **data})
-        return data
+    else:
+        best = None
+        for d in STATS_DIRS:
+            try:
+                with open(os.path.join(d, name)) as f:
+                    c = json.load(f)
+            except (OSError, ValueError):
+                continue
+            if best is None or c.get("time", "") > best.get("time", ""):
+                best = c
+        if best is not None:
+            data = {"quota": best.get("quota"), "stats": best.get("stats", []), "asof": best.get("time", "")[:10]}
+    data["source"] = "robinhood"
+    if fs == "nearline":
+        # Our own per-file scan beats the nightly robinhood numbers whenever one exists
+        scan = nearline_scan(group)
+        if scan:
+            data.update(stats=scan_entries(scan), asof=scan["time"][:10], source="scan", scan=scan)
+    return data
+
+
+# ---- /nearline scan: our own, realtime per-file view (login nodes only, where /nearline is mounted) -------------
+
+HSM_STATES = ("On disk", "Archiving in progress", "On disk and tape", "Modified, will be archived again", "On tape")
+
+
+def hsm_state(flags):
+    """Lustre HSM flag words -> the robinhood location names used everywhere else."""
+    f = set(flags.split())
+    if "released" in f:
+        return "On tape"
+    if "dirty" in f:
+        return "Modified, will be archived again"
+    if "archived" in f:
+        return "On disk and tape"
+    if "exists" in f:
+        return "Archiving in progress"
+    return "On disk"
+
+
+def parse_hsm(out):
+    """{path: state} from `lfs hsm_state` lines such as '/p/f: (0x0000000d) released exists archived, archive_id:2'."""
+    states = {}
+    for line in out.splitlines():
+        m = re.match(r"^(.*): \(0x[0-9a-fA-F]+\)(.*)$", line)
+        if m:
+            states[m.group(1)] = hsm_state(m.group(2).split(",")[0])
+    return states
+
+
+_owners = {}
+
+
+def _owner(uid):
+    if uid not in _owners:
+        try:
+            _owners[uid] = pwd.getpwuid(uid).pw_name
+        except KeyError:
+            _owners[uid] = str(uid)
+    return _owners[uid]
+
+
+def summarise_scan(group, recs, unreadable, now=None):
+    """Scan dict from (relpath, owner, bytes, state) records: totals per state, per user, and the folders (two
+    levels) holding files that are not yet safely on tape."""
+    states = {st: {"files": 0, "bytes": 0} for st in HSM_STATES}
+    users, pending = {}, {}
+    for rel, user, nbytes, state in recs:
+        states[state]["files"] += 1
+        states[state]["bytes"] += nbytes
+        u = users.setdefault(user, {st: [0, 0] for st in HSM_STATES})
+        u[state][0] += 1
+        u[state][1] += nbytes
+        if state not in ("On tape", "On disk and tape"):
+            folder = "/".join(rel.split("/")[:-1][:2]) or "."
+            d = pending.setdefault((folder, user, state), [0, 0])
+            d[0] += 1
+            d[1] += nbytes
+    return {"time": now or time.strftime("%Y-%m-%d %H:%M"), "group": group, "files": len(recs),
+            "bytes": sum(r[2] for r in recs), "states": states, "users": users,
+            "pending": sorted(([f, u, st, n, b] for (f, u, st), (n, b) in pending.items()), key=lambda r: (-r[4], r[0])),
+            "unreadable": sorted(unreadable)}
+
+
+def scan_entries(scan):
+    """The scan as robinhood-style hsm_size entries, so the by-user code reads both sources alike."""
+    return [{"uid": u, "count": n, "size": b, "volume": 0 if st == "On tape" else b, "location": st}
+            for u, per in scan["users"].items() for st, (n, b) in per.items() if n]
+
+
+def scan_nearline(group):
+    """Every file under /nearline/<group> with owner, size and HSM state (about a second per group).
+    None when /nearline is not mounted on this node."""
+    base = os.path.realpath(f"/nearline/{group}")
+    if not os.path.isdir(base):
+        return None
+    found = subprocess.run(["lfs", "find", base, "-type", "f"], capture_output=True, text=True, timeout=600)
+    paths = [l for l in found.stdout.splitlines() if l]
+    unreadable = {m.group(1)[len(base) + 1:] for m in re.finditer(r"Failed to open '([^']*)'", found.stderr)}
+    states = {}
+    for i in range(0, len(paths), 500):
+        out = subprocess.run(["lfs", "hsm_state", *paths[i:i + 500]], capture_output=True, text=True, timeout=600)
+        states.update(parse_hsm(out.stdout))
+    recs = []
+    for path in paths:
+        try:
+            st = os.lstat(path)
+        except OSError:
+            continue
+        recs.append((path[len(base) + 1:], _owner(st.st_uid), st.st_size, states.get(path, "On disk")))
+    return summarise_scan(group, recs, unreadable)
+
+
+def nearline_scan(group):
+    """Live scan on a login node (saved for the compute nodes), else the newest saved scan; None without either."""
+    name = f"nearline-scan-{group}.json"
+    try:
+        scan = scan_nearline(group)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        scan = None
+    if scan:
+        _save_stats(name, scan)
+        return scan
     best = None
     for d in STATS_DIRS:
         try:
             with open(os.path.join(d, name)) as f:
-                c = json.load(f)
+                cand = json.load(f)
         except (OSError, ValueError):
             continue
-        if best is None or c.get("time", "") > best.get("time", ""):
-            best = c
-    if best is None:
-        return data
-    return {"quota": best.get("quota"), "stats": best.get("stats", []), "asof": best.get("time", "")[:10]}
+        if best is None or cand.get("time", "") > best.get("time", ""):
+            best = cand
+    return best
 
 
 def _save_stats(name, payload):
@@ -164,9 +286,13 @@ def group_quotas():
 def user_breakdown(fs, group):
     """{user: {"disk": bytes, "tape": bytes, "files": n}} from the robinhood stats, same rules as diskusage_rbh."""
     users = {}
-    for e in fs_stats(fs, group)["stats"]:
+    data = fs_stats(fs, group)
+    for e in data["stats"]:
         loc = e.get("location", "")
-        if e.get("uid") == "root" or (loc == "On disk") != (fs == "project"):
+        if e.get("uid") == "root":
+            continue
+        # robinhood lists /nearline files that were never archived under "On disk"; diskusage_rbh leaves those out
+        if data.get("source") != "scan" and (loc == "On disk") != (fs == "project"):
             continue
         n = e.get("size", 0) if loc == "On tape" else e.get("volume", 0)
         d = users.setdefault(e["uid"], {"disk": 0.0, "tape": 0.0, "files": 0})
