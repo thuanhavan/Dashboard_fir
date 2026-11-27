@@ -63,10 +63,10 @@ class LabPageTests(unittest.TestCase):
                       "Fairshare · cluster cores now", "Jobs finished per day · all members · last 30 d", "Jobs by member · last 30 d",
                       "Problem jobs, all members, last 30 d (1)"):
             self.assertIn(title, grid, title)
-        self.assertIn("def-a · 78.2 TiB / 90.9 TiB", kpis)          # fuller /project space tile names its group
+        self.assertIn("def-a + def-b · 131.0 TiB / 181.9 TiB", kpis)  # /project tiles add up every group
         files_tile = kpis.split("/project files")[1].split("</div></div>")[0]
-        self.assertIn('class="kpi-b warn"', files_tile)              # def-b files 445K / 500K = 89 %: amber
-        self.assertIn("89%", files_tile)
+        self.assertIn("def-a + def-b · 1.74M / 2.50M", files_tile)
+        self.assertIn("69%", files_tile)
         self.assertIn("53,600", kpis)                                 # November core-hours
         self.assertIn("2.0 h", kpis)                                  # median of [1800 s, 7200 s] picks index 1 -> 7200 s
         self.assertEqual(alerts, [])
@@ -214,15 +214,15 @@ class ShellTests(unittest.TestCase):
         html7 = self._with(fake_lab(), lambda: render.build({"page": "lab", "days": "7"}))
         bad = self._with(fake_lab(), lambda: render.build({"page": "nonsense", "days": "999"}))
         self.assertIn("<title>Research Computing Dashboard · Lab</title>", html)
-        self.assertIn('href="?page=lab&amp;days=30"', html)
+        self.assertIn('href="?page=lab&amp;days=7"', html)
         self.assertIn('href="?page=me&amp;days=7"', html)
-        self.assertIn("last 30 d", html)
+        self.assertIn("last 7 d", html)
         self.assertIn("last 7 d", html7)
-        self.assertIn("last 30 d", bad)                   # unknown page/days fall back to Lab / 30
+        self.assertIn("last 7 d", bad)                    # unknown page/days fall back to Lab / 7
         self.assertNotIn("Boards", html)
         self.assertIn("id='zoom'", html)                   # click-to-enlarge overlay script is present
         self.assertEqual(html.count("<script>"), 1)
-        self.assertIn('<option value="30" selected>', html)
+        self.assertIn('<option value="7" selected>', html)
         self.assertIn('href="restart"', html)
         self.assertIn("Queue wait per day · hours · last 7 d", html7)
 
@@ -268,11 +268,11 @@ class ShellTests(unittest.TestCase):
         server._cache.clear()
         with mock.patch.object(server, "build", side_effect=lambda params: repr(sorted(params.items()))) as b:
             first = server.page("")
-            self.assertEqual(server.page("page=lab&days=30&junk=1"), first)
+            self.assertEqual(server.page("page=lab&days=7&junk=1"), first)
             self.assertEqual(server.page("page=nonsense&days=999"), first)
             server.page("page=me")
         self.assertEqual(b.call_count, 2)
-        self.assertEqual(set(server._cache), {("lab", 30), ("me", 7)})
+        self.assertEqual(set(server._cache), {("lab", 7), ("me", 7)})
 
     def test_server_serves_stale_page_and_refreshes_in_background(self):
         import threading
@@ -290,15 +290,15 @@ class ShellTests(unittest.TestCase):
         with mock.patch.object(server, "build", side_effect=fake_build):
             first = server.page("page=lab")                       # cold: built inline
             self.assertEqual(first, "<html>lab 1</html>")
-            server._cache[("lab", 30)] = (0, first)               # make it stale
+            server._cache[("lab", 7)] = (0, first)               # make it stale
             done.clear()
             self.assertEqual(server.page("page=lab"), first)      # stale copy served at once
             self.assertTrue(done.wait(5))                         # ...and rebuilt in the background
             for _ in range(50):
-                if server._cache[("lab", 30)][1] == "<html>lab 2</html>":
+                if server._cache[("lab", 7)][1] == "<html>lab 2</html>":
                     break
                 time.sleep(0.02)
-        self.assertEqual(server._cache[("lab", 30)][1], "<html>lab 2</html>")
+        self.assertEqual(server._cache[("lab", 7)][1], "<html>lab 2</html>")
         self.assertEqual(built, ["lab", "lab"])
 
     def test_warm_builds_both_default_pages(self):
@@ -308,10 +308,10 @@ class ShellTests(unittest.TestCase):
         with mock.patch.object(server, "build", side_effect=lambda params: params["page"]):
             server.warm()
             for _ in range(100):
-                if set(server._cache) == {("lab", 30), ("me", 7)}:
+                if set(server._cache) == {("lab", 7), ("me", 7)}:
                     break
                 time.sleep(0.02)
-        self.assertEqual(set(server._cache), {("lab", 30), ("me", 7)})
+        self.assertEqual(set(server._cache), {("lab", 7), ("me", 7)})
 
 
 if __name__ == "__main__":

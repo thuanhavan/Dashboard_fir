@@ -53,8 +53,15 @@ def user_quotas():
     return rows
 
 
+MAIN_GROUPS = ("def-kanj241",)   # listed first everywhere; the rest alphabetically
+
+
+def group_rank(g):
+    return (MAIN_GROUPS.index(g) if g in MAIN_GROUPS else len(MAIN_GROUPS), g)
+
+
 def groups():
-    return sorted(g for g in run("groups").split() if g.startswith(("def-", "rrg-", "rpp-")))
+    return sorted((g for g in run("groups").split() if g.startswith(("def-", "rrg-", "rpp-"))), key=group_rank)
 
 
 # Copies of the /nearline nightly stats for nodes without the mount. The shared folder (inside the member copy of

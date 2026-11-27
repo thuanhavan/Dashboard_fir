@@ -11,7 +11,7 @@ from .charts import CRIT, GOOD, OTHER, SERIES, WARN, esc, hatch_defs
 
 PAGES = [("lab", "Lab"), ("me", "Me")]
 DAYS = (7, 30)
-DEFAULT_DAYS = {"lab": 30, "me": 7}
+DEFAULT_DAYS = {"lab": 7, "me": 7}
 LOGO = Path(__file__).resolve().parent.parent / "docs" / "logo.png"
 ABOUT = ("Lab: storage, compute use and jobs of every group you belong to. Me: your own quotas and jobs. "
          "Read-only: it only reads the cluster's own reports under your account.")

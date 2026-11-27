@@ -12,12 +12,20 @@ def group_quotas(st):
     """Group rows only (not the user's /home and /scratch), /project before /nearline."""
     order = {"/project": 0, "/nearline": 1}
     rows = [q for q in st["quotas"] if not q["label"].startswith(c.USER + " ")]
-    return sorted(rows, key=lambda q: (order.get(q["label"].split()[1], 9), q["label"]))
+    return sorted(rows, key=lambda q: (order.get(q["label"].split()[1], 9), c.group_rank(q["label"].split()[0])))
+
+
+def combined(rows):
+    """One quota row adding up every group (label lists the groups), or None without rows."""
+    if not rows:
+        return None
+    return {"label": " + ".join(q["label"].split()[0] for q in rows),
+            **{k: sum(q[k] for q in rows) for k in ("used", "quota", "files", "fquota")}}
 
 
 def quota_kpi(icon, title, q, key, qkey, fmt):
     p = pct(q, key, qkey)
-    return kpi("⚠" if p >= 95 else icon, title, f"{q['label'].split()[0]} · {fmt(q[key])} / {fmt(q[qkey])}",
+    return kpi("⚠" if p >= 95 else icon, title, f"{q['label']} · {fmt(q[key])} / {fmt(q[qkey])}",
                f"{p:.0f}%", level(p), p)
 
 
@@ -52,12 +60,11 @@ def build_lab(days):
     colors = extend_colors(colors, sorted({u for m in usage.values() for u in m}))
     users = list(colors.items()) + [("other", OTHER)]
 
-    # KPI row: /project space, /project files, nearline total, this month's CPU and GPU hours, median queue wait
-    proj = [q for q in gq if q["label"].endswith(" /project")]
+    # KPI row, every tile over all groups together: /project space, /project files, nearline total,
+    # this month's CPU and GPU hours, median queue wait
+    q = combined([q for q in gq if q["label"].endswith(" /project")])
     k = []
-    q = max(proj, key=lambda q: pct(q), default=None)
     k.append(quota_kpi("▤", "/project space", q, "used", "quota", size) if q else kpi("▤", "/project space", "no data", "—"))
-    q = max(proj, key=lambda q: pct(q, "files", "fquota"), default=None)
     k.append(quota_kpi("☰", "/project files", q, "files", "fquota", count) if q else kpi("☰", "/project files", "no data", "—"))
     near = sum(v["disk"] + v["tape"] for (fs_, _), us in st["breakdown"].items() if fs_ == "nearline" for v in us.values())
     k.append(kpi("◫", "/nearline", "disk + tape · all groups" + (f" · as of {st['asof']}" if st.get("asof") else ""), size(near) if st["breakdown"] else "—"))

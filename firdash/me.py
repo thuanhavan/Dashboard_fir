@@ -28,17 +28,20 @@ def build_me(days, static=False):
     running = [r for r in jb if len(r) > 2 and r[2] == "RUNNING"] if jb is not None else []
     pending = [r for r in jb if len(r) > 2 and r[2] == "PENDING"] if jb is not None else []
 
-    shares = []
+    # My /project over all groups together (per-group detail is in the "My share of group storage" chart)
+    used = quota = 0.0
+    names = []
     for g in st["groups"]:
         q = next((q for q in st["quotas"] if q["label"] == f"{g} /project"), None)
         us = st["breakdown"].get(("project", g))
         if q and us is not None:
-            used = us.get(c.USER, {"disk": 0.0, "tape": 0.0})
-            used = used["disk"] + used["tape"]
-            shares.append((100 * used / max(q["quota"], 1), g, used))
-    if shares:
-        share, g, used = max(shares)
-        proj = kpi("▤", "My /project", f"{g} · {share:.2f}% of the group quota", size(used), "", share)
+            own = us.get(c.USER, {"disk": 0.0, "tape": 0.0})
+            used += own["disk"] + own["tape"]
+            quota += q["quota"]
+            names.append(g)
+    if names:
+        share = 100 * used / max(quota, 1)
+        proj = kpi("▤", "My /project", f"{' + '.join(names)} · {share:.2f}% of the quotas · nightly stats", size(used), "", share)
     else:
         proj = kpi("▤", "My /project", "no data", "—")
     bad = problems(hist) if hist is not None else None

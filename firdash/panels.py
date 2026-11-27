@@ -175,7 +175,7 @@ def usage_chart(breakdown, fs, groups, colors, tape):
 def my_share_chart(breakdown, quotas):
     """My /project and /nearline usage per group as % of the group quota, with size and file count."""
     rows = []
-    for (fs, g), users in sorted(breakdown.items(), key=lambda kv: (kv[0][1], kv[0][0] != "project")):
+    for (fs, g), users in sorted(breakdown.items(), key=lambda kv: (c.group_rank(kv[0][1]), kv[0][0] != "project")):
         q = next((q for q in quotas if q["label"] == f"{g} /{fs}"), None)
         if not q:
             continue
