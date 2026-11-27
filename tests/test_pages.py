@@ -36,7 +36,8 @@ def fake_lab(**over):
     """Patch every collector the Lab page uses; keyword overrides replace one of them (e.g. usage=lambda *a: 1/0)."""
     cache._ttl.clear()
     pats = {"storage": lambda: ST, "fairshare": lambda: FS, "nodes": lambda: ND, "recent": lambda d, a=None: HIST,
-            "usage_by_month": lambda a: USAGE, "queue_wait": lambda a, d: WAITS}
+            "usage_by_month": lambda a: USAGE, "queue_wait": lambda a, d: WAITS,
+            "running_now": lambda a: {"jobs": 12, "gpu_jobs": 2, "cpus": 96, "gpus": 3}}
     pats.update(over)
     ms = [mock.patch.object(cache, "storage", pats.pop("storage")), mock.patch.object(c, "USER", "me")]
     ms += [mock.patch.object(c, k, v) for k, v in pats.items()]
@@ -58,7 +59,7 @@ class LabPageTests(unittest.TestCase):
     def test_lab_has_six_kpis_and_all_cards(self):
         kpis, grid, alerts, colors = self.run_lab()
         self.assertEqual(kpis.count('class="kpi"'), 6)
-        for title in ("Space quota", "File-count quota", "/project by user (TiB) · nightly stats, may lag recent moves", "/nearline by user (TiB) · nightly stats · login-node copy of 2026-11-25",
+        for title in ("Space quota", "File-count quota", "/project by user (TiB) · nightly stats, may lag recent moves", "/nearline by user (TiB) · disk + tape · nightly stats · copy of 2026-11-25",
                       "CPU core-hours per month by member", "GPU-hours per month by member", "Queue wait per week · hours · last 30 d",
                       "Fairshare · cluster cores now", "Jobs finished per day · all members · last 30 d", "Jobs by member · last 30 d",
                       "Problem jobs, all members, last 30 d (1)"):
@@ -67,7 +68,11 @@ class LabPageTests(unittest.TestCase):
         files_tile = kpis.split("/project files")[1].split("</div></div>")[0]
         self.assertIn("def-a + def-b · 1.74M / 2.50M", files_tile)
         self.assertIn("69%", files_tile)
-        self.assertIn("53,600", kpis)                                 # November core-hours
+        self.assertIn("All members, core-hours · ", grid)            # monthly totals above the chart
+        self.assertIn("Nov 2026: 53,600", grid)
+        self.assertIn("now · 12 running jobs", kpis)
+        self.assertIn("now · 2 GPU jobs", kpis)
+        self.assertIn("<b>96</b>", kpis)
         self.assertIn("2.0 h", kpis)                                  # median of [1800 s, 7200 s] picks index 1 -> 7200 s
         self.assertEqual(alerts, [])
         self.assertIn("otheruser", colors)
@@ -79,13 +84,16 @@ class LabPageTests(unittest.TestCase):
         self.assertIn("no data · RuntimeError: sreport down", grid)
         self.assertIn("Space quota", grid)
         self.assertEqual(kpis.count('class="kpi"'), 6)
+        self.assertEqual(kpis.count("<b>—</b>"), 0)               # tiles no longer depend on the monthly report
+        kpis, grid, alerts, colors = self.run_lab(running_now=boom(RuntimeError("squeue down")))
         self.assertEqual(kpis.count("<b>—</b>"), 2)               # CPU and GPU tiles
+        self.assertIn("no data", kpis)
 
     def test_lab_survives_fairshare_failure(self):
         calls = []
         rec = lambda *a: calls.append(a) or []
         kpis, grid, alerts, colors = self.run_lab(fairshare=boom(RuntimeError("sshare down")), recent=rec,
-                                                  usage_by_month=rec, queue_wait=rec)
+                                                  usage_by_month=rec, queue_wait=rec, running_now=rec)
         self.assertEqual(calls, [])
         self.assertGreaterEqual(grid.count("no data · RuntimeError: no Slurm accounts"), 3)
         self.assertEqual(kpis.count("<b>—</b>"), 3)               # CPU, GPU, queue wait

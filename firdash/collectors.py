@@ -341,6 +341,22 @@ def parse_queue_wait(text):
     return out
 
 
+def running_now(accounts):
+    """Cores and GPUs allocated right now to running jobs of these accounts: {"jobs", "gpu_jobs", "cpus", "gpus"}."""
+    out = {"jobs": 0, "gpu_jobs": 0, "cpus": 0, "gpus": 0}
+    for line in run_checked(f"squeue -h -A {','.join(accounts)} -t RUNNING -O tres-alloc:300", 60).splitlines():
+        if not line.strip():
+            continue
+        tres = dict(kv.split("=", 1) for kv in line.split(",") if "=" in kv)
+        cpus = int(tres.get("cpu", "0") or 0)
+        gpus = int(tres.get("gres/gpu", "0") or 0)
+        out["jobs"] += 1
+        out["gpu_jobs"] += 1 if gpus else 0
+        out["cpus"] += cpus
+        out["gpus"] += gpus
+    return out
+
+
 def queue_wait(accounts, days):
     """[(start date, wait seconds)] for jobs on the accounts. The date is the job's start date; pending jobs are
     excluded. sacct -S also includes jobs that started before the window, so callers bucket by start date.

@@ -43,12 +43,13 @@ def build_lab(days):
              "nd": lambda: cached("nodes", CACHE_TTL, c.nodes)}
     if accts:
         # Only usage and waits use the storage TTL (10 min): slow-changing, one slurmdbd query each.
-        tasks.update({"hist": lambda: cached(("lab-hist", days, accts), STORAGE_TTL, c.recent, days, accounts),
+        tasks.update({"now": lambda: cached(("now", accts), CACHE_TTL, c.running_now, accounts),
+                      "hist": lambda: cached(("lab-hist", days, accts), STORAGE_TTL, c.recent, days, accounts),
                       "usage": lambda: cached(("usage", accts), STORAGE_TTL, c.usage_by_month, accounts),
                       "waits": lambda: cached(("wait", days, accts), STORAGE_TTL, c.queue_wait, accounts, days)})
     d.update(gather(tasks))
     if not accts:
-        d["hist"] = d["usage"] = d["waits"] = RuntimeError("no Slurm accounts: sshare failed or returned nothing")
+        d["now"] = d["hist"] = d["usage"] = d["waits"] = RuntimeError("no Slurm accounts: sshare failed or returned nothing")
     st = ok(d, "st") or EMPTY_ST
     gq = group_quotas(st)
     hist = ok(d, "hist") or []
@@ -61,17 +62,18 @@ def build_lab(days):
     users = list(colors.items()) + [("other", OTHER)]
 
     # KPI row, every tile over all groups together: /project space, /project files, nearline total,
-    # this month's CPU and GPU hours, median queue wait
+    # cores and GPUs running now, median queue wait
     q = combined([q for q in gq if q["label"].endswith(" /project")])
     k = []
     k.append(quota_kpi("▤", "/project space", q, "used", "quota", size) if q else kpi("▤", "/project space", "no data", "—"))
     k.append(quota_kpi("☰", "/project files", q, "files", "fquota", count) if q else kpi("☰", "/project files", "no data", "—"))
     near = sum(v["disk"] + v["tape"] for (fs_, _), us in st["breakdown"].items() if fs_ == "nearline" for v in us.values())
     k.append(kpi("◫", "/nearline", "disk + tape · all groups" + (f" · as of {st['asof']}" if st.get("asof") else ""), size(near) if st["breakdown"] else "—"))
-    month = max(usage) if usage else None
-    mlabel = month_label(month) if month else "no data"
-    k.append(kpi("▦", "CPU core-hours", mlabel, f"{sum(v['cpu'] for v in usage[month].values()):,.0f}" if month else "—"))
-    k.append(kpi("▣", "GPU-hours", mlabel, f"{sum(v['gpu'] for v in usage[month].values()):,.0f}" if month else "—"))
+    now = ok(d, "now")
+    k.append(kpi("▦", "CPU cores in use", f"now · {now['jobs']:,} running jobs" if now else "no data",
+                 f"{now['cpus']:,}" if now else "—", "good" if now and now["cpus"] else ""))
+    k.append(kpi("▣", "GPUs in use", f"now · {now['gpu_jobs']:,} GPU jobs" if now else "no data",
+                 f"{now['gpus']:,}" if now else "—", "good" if now and now["gpus"] else ""))
     k.append(kpi("◷", "Queue wait", f"median · last {days} d · {len(waits):,} jobs", hours_text(median([w for _, w in waits]) / 3600) if waits else "—"))
 
     alerts = [f"{q['label']} {name} {p:.0f}%" for q in gq
@@ -81,10 +83,12 @@ def build_lab(days):
         bad = problems(val(d, "hist"))
         return fold(f"Problem jobs, all members, last {days} d ({len(bad)})", problems_table(bad, with_user=True))
 
-    near_title = "/nearline by user (TiB) · nightly stats" + (f" · login-node copy of {st['asof']}" if st.get("asof") else "")
+    near_title = "/nearline by user (TiB) · disk + tape · nightly stats" + (f" · copy of {st['asof']}" if st.get("asof") else "")
+    quota_note = ('<p class="muted">Live lfs quota. /nearline counts only data still on disk, as Alliance\'s diskusage_report '
+                  'does; data already moved to tape is in the /nearline by user chart.</p>')
     grid = "".join([
         section("Storage"),
-        safe("Space quota", lambda: card("Space quota", quota_chart(group_quotas(val(d, "st")), "used", "quota", size))),
+        safe("Space quota", lambda: card("Space quota", quota_chart(group_quotas(val(d, "st")), "used", "quota", size) + quota_note)),
         safe("File-count quota", lambda: card("File-count quota", quota_chart(group_quotas(val(d, "st")), "files", "fquota", count))),
         safe("/project by user (TiB)", lambda: card("/project by user (TiB) · nightly stats, may lag recent moves",
              usage_chart(val(d, "st")["breakdown"], "project", val(d, "st")["groups"], colors, False) + legend(users)

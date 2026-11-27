@@ -130,6 +130,14 @@ class BreakdownTests(unittest.TestCase):
             self.assertFalse(hasattr(c, name), name)
 
 
+class RunningNowTests(unittest.TestCase):
+    def test_running_now_sums_cpus_and_gpus(self):
+        out = "cpu=4,mem=64G,node=1,billing=16000\ncpu=12,mem=100G,node=1,billing=5,gres/gpu=2\n\n"
+        with mock.patch.object(c, "run_checked", return_value=out) as rc:
+            self.assertEqual(c.running_now(["a_cpu", "a_gpu"]), {"jobs": 2, "gpu_jobs": 1, "cpus": 16, "gpus": 2})
+        self.assertIn("-A a_cpu,a_gpu -t RUNNING", rc.call_args[0][0])
+
+
 class FailLoudlyTests(unittest.TestCase):
     def test_job_collectors_propagate_run_checked_errors(self):
         calls = {"jobs": (), "recent": (7,), "pending_start": (), "efficiency": (7,), "nodes": ()}

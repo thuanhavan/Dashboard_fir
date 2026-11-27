@@ -231,7 +231,10 @@ def usage_month_chart(usage, kind, colors):
               for u in top]
     if rest:
         series.append(("other", OTHER, [round(sum(usage[m].get(u, {}).get(kind, 0.0) for u in rest)) for m in months]))
-    return columns([month_label(m) for m in months], series, max_bw=90) + legend([(n, col) for n, col, _ in series])
+    unit = "core-hours" if kind == "cpu" else "GPU-hours"
+    total = " · ".join(f"{month_label(m)}: {sum(v[kind] for v in usage[m].values()):,.0f}" for m in months)
+    return (f'<p class="muted">All members, {unit} · {total}</p>'
+            + columns([month_label(m) for m in months], series, max_bw=90) + legend([(n, col) for n, col, _ in series]))
 
 
 def queue_wait_chart(waits, days):
