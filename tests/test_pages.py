@@ -158,7 +158,7 @@ class MePageTests(unittest.TestCase):
         self.assertIn("raise --time", grid)
         self.assertIn("<details open>", grid)
         self.assertNotIn("otheruser", kpis + grid)                     # no other member's name
-        self.assertIn("def-a · 0.02% of the group quota", kpis)
+        self.assertIn("def-a + def-b · 0.01% of the quotas · nightly stats", kpis)
         self.assertEqual(alerts, [])
 
     def test_me_survives_failures(self):
