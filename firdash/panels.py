@@ -146,7 +146,7 @@ def quota_chart(quotas, key, qkey, fmt):
 
 def usage_chart(breakdown, fs, groups, colors, tape):
     """One stacked bar per group: who uses the space (tape-only hatched when tape=True)."""
-    keys = sorted(k for k in breakdown if k[0] == fs and k[1] in groups)
+    keys = sorted((k for k in breakdown if k[0] == fs and k[1] in groups), key=lambda k: c.group_rank(k[1]))
     totals = [sum(v["disk"] + v["tape"] for v in breakdown[k].values()) for k in keys]
     xmax = max(totals + [1])
     rows = []
@@ -209,7 +209,7 @@ def nodes_chart(nodes):
 
 def fairshare_chart(fs):
     rows = []
-    for acct, norm, eff, fair, level in fs:
+    for acct, norm, eff, fair, level in sorted(fs, key=lambda r: (c.group_rank(r[0].rsplit("_", 1)[0]), r[0])):
         f = float(fair or 0)
         rows.append((acct, [(f, SERIES[0], f"FairShare {f:.3f} · LevelFS {level} · usage {float(eff or 0):.3f} of share {float(norm or 0):.3f}", False, None)],
                      f'<tspan class="strong">{f:.2f}</tspan>'))
@@ -231,10 +231,7 @@ def usage_month_chart(usage, kind, colors):
               for u in top]
     if rest:
         series.append(("other", OTHER, [round(sum(usage[m].get(u, {}).get(kind, 0.0) for u in rest)) for m in months]))
-    unit = "core-hours" if kind == "cpu" else "GPU-hours"
-    total = " · ".join(f"{month_label(m)}: {sum(v[kind] for v in usage[m].values()):,.0f}" for m in months)
-    return (f'<p class="muted">All members, {unit} · {total}</p>'
-            + columns([month_label(m) for m in months], series, max_bw=90) + legend([(n, col) for n, col, _ in series]))
+    return columns([month_label(m) for m in months], series, max_bw=90, totals=True) + legend([(n, col) for n, col, _ in series])
 
 
 def queue_wait_chart(waits, days):
@@ -371,7 +368,7 @@ def stats_lag_note(breakdown, quotas, fs):
     """One line per group comparing the nightly robinhood per-user totals with the live lfs quota, so a reader can
     see how stale the by-user split is (moves and deletions reach robinhood only at its next scan)."""
     parts = []
-    for (fs_, g), users in sorted(breakdown.items()):
+    for (fs_, g), users in sorted(breakdown.items(), key=lambda kv: c.group_rank(kv[0][1])):
         if fs_ != fs:
             continue
         q = next((q for q in quotas if q["label"] == f"{g} /{fs}"), None)

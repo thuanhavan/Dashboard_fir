@@ -122,9 +122,9 @@ def legend(items, tape=False):
     return f'<div class="legend">{"".join(out)}</div>'
 
 
-def columns(xlabels, series, width=620, height=260, max_bw=28):
-    """Stacked columns. series: [(name, color, [values])] sharing xlabels."""
-    left, right, top, bottom = 62, 10, 12, 26   # room for "120,000" on the y axis
+def columns(xlabels, series, width=620, height=260, max_bw=28, totals=False):
+    """Stacked columns. series: [(name, color, [values])] sharing xlabels. totals=True prints the column total on top."""
+    left, right, top, bottom = 62, 10, 12 if not totals else 22, 26   # room for "120,000" on the y axis
     pw, ph = width - left - right, height - top - bottom
     totals = [sum(s[2][i] for s in series) for i in range(len(xlabels))]
     step = max(1, int(nice_step(max(totals + [1]))))
@@ -148,6 +148,8 @@ def columns(xlabels, series, width=620, height=260, max_bw=28):
                 y1, y2 = sy(v0 + v), sy(v0)
                 out.append(f'<rect x="{cx - bw / 2:.1f}" y="{y1:.1f}" width="{bw:.1f}" height="{max(y2 - y1 - 2, 1):.1f}" rx="3" fill="{col}"/>')
             v0 += v
+        if totals and v0:
+            out.append(f'<text x="{cx:.1f}" y="{sy(v0) - 4:.1f}" class="tick strong" text-anchor="middle">{round(v0):,}</text>')
         tip = " · ".join(f"{name}: {vals[i]}" for name, _, vals in series)
         out.append(f'<rect x="{cx - slot / 2:.1f}" y="{top}" width="{slot:.1f}" height="{ph}" class="hover"><title>{esc(lab)} — {esc(tip)}</title></rect>')
     out.append(f'<line x1="{left}" y1="{top + ph}" x2="{left + pw}" y2="{top + ph}" class="axis"/></svg>')

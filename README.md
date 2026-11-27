@@ -25,8 +25,9 @@ storage of the groups they belong to. The shared copy for **def-kanj241** member
 `/project/def-kanj241/A01_GAIG_data_repo/C01_pipelines/fir-dashboard`.
 
 **Web link:** open <https://fir.gaig.ca> and click **Open dashboard**. It signs in with your Fir account + Duo and
-starts a small JupyterHub session (1 core, 2 GB, 8 h, `def-kanj241_cpu`; no Server Options form); the dashboard
-opens by itself in 30–60 s. The session ends after 8 hours; if one is already running it is reused.
+starts a small JupyterHub session (1 core, 2 GB, 3 h, `def-kanj241_cpu`; no Server Options form); the dashboard
+opens by itself in 30–60 s. The session ends after 3 hours (jobs over 3 h go to a slow partition on Fir and can
+queue for hours; the hub form allows at most 5 h); if one is already running it is reused.
 
 One-time setup, on Fir (SSH, or a Terminal in JupyterLab):
 

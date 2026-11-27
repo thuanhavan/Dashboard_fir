@@ -68,8 +68,7 @@ class LabPageTests(unittest.TestCase):
         files_tile = kpis.split("/project files")[1].split("</div></div>")[0]
         self.assertIn("def-a + def-b · 1.74M / 2.50M", files_tile)
         self.assertIn("69%", files_tile)
-        self.assertIn("All members, core-hours · ", grid)            # monthly totals above the chart
-        self.assertIn("Nov 2026: 53,600", grid)
+        self.assertIn('text-anchor="middle">53,600</text>', grid)   # November total printed on top of its column
         self.assertIn("now · 12 running jobs", kpis)
         self.assertIn("now · 2 GPU jobs", kpis)
         self.assertIn("<b>96</b>", kpis)
